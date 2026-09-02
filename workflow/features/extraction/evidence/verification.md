@@ -15,3 +15,6 @@ The extraction is a verified protocol kernel, not a complete SCIM server.
 HTTP, resource adapters, persistence, tombstones, reconciliation, and an RFC
 conformance matrix remain explicit future features and must not be represented
 as completed work.
+
+Graphify 0.9.32 code-only audit: 57 nodes, 74 directed post-build edges, no
+self-loops, exact duplicate edges, or same-endpoint relation groups.
