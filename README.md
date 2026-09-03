@@ -48,7 +48,8 @@ consumer-owned deployment requirements.
 
 ## Installation, compatibility, and support
 
-Unreleased. The Go API is pre-1.0; the exact supported standards surface is recorded in `docs/conformance.md`.
+Unreleased. The Go API is pre-1.0; the exact supported standards surface is
+recorded in `docs/conformance.md`.
 
 No post-migration version has been tagged. To inspect the current source
 before the first admitted release:
