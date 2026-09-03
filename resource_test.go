@@ -8,7 +8,7 @@ import (
 
 func TestRegistryAndResourceValidation(t *testing.T) {
 	definitions := DefaultDefinitions()
-	definitions[0].Extensions = []Extension{{Schema: "urn:example:employee", Name: "Employee", Required: true, Validate: func(document Document) error {
+	definitions[0].Extensions = []Extension{{Schema: "urn:example:employee", Name: "Employee", Required: true, Attributes: []SchemaAttribute{{Name: "employeeNumber", Type: "string", Mutability: "readWrite", Returned: "default", Uniqueness: "none"}}, Validate: func(document Document) error {
 		_, err := requiredString(document, "employeeNumber", 32)
 		return err
 	}}}
@@ -31,7 +31,6 @@ func TestRegistryAndResourceValidation(t *testing.T) {
 	invalid := []string{
 		`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"member"}`,
 		`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User","urn:example:employee"],"userName":"member","password":"secret","urn:example:employee":{"employeeNumber":"42"}}`,
-		`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User","urn:example:employee"],"id":"client","userName":"member","urn:example:employee":{"employeeNumber":"42"}}`,
 		`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User","urn:example:employee"],"userName":"member","unknown":true,"urn:example:employee":{"employeeNumber":"42"}}`,
 		`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User","urn:example:employee"],"userName":"member","urn:ietf:params:scim:schemas:core:2.0:User":{"smuggled":true},"urn:example:employee":{"employeeNumber":"42"}}`,
 	}

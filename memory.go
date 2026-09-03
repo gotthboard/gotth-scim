@@ -75,7 +75,7 @@ func (transaction *memoryTransaction) Get(scope, resourceType, id string) (Recor
 }
 
 func (transaction *memoryTransaction) List(query Query) ([]Record, error) {
-	if query.Scope == "" || !validName(query.ResourceType) || query.Attribute != "" && !validAttributeName(query.Attribute) {
+	if query.Scope == "" || !validName(query.ResourceType) || query.Attribute != "" && !validAttributeName(query.Attribute) || query.Limit < 1 {
 		return nil, fmt.Errorf("store query is invalid")
 	}
 	result := make([]Record, 0)
@@ -87,6 +87,9 @@ func (transaction *memoryTransaction) List(query Query) ([]Record, error) {
 			continue
 		}
 		result = append(result, cloneRecord(record))
+		if len(result) > query.Limit {
+			return nil, ErrTooMany
+		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil

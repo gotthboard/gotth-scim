@@ -1,7 +1,7 @@
 schema_version = 1
 project = "gotth-scim"
 profile = "strict"
-active = ""
+active = "rfc-complete"
 
 [settings]
 worktree_root = "worktrees"
@@ -93,6 +93,43 @@ kind = "unit"
 command = "make verify"
 required = true
 timeout_seconds = 900
+side_effect = "local_write"
+network = false
+retries = 0
+
+[feature.rfc-complete]
+id = "rfc-complete"
+slug = "rfc-complete"
+name = "Complete RFC 7643 and RFC 7644 capabilities"
+namespace = "scim"
+parent = ""
+state = "in_progress"
+risk = "high"
+assurance = "traceable-tests"
+created_at = "2026-09-03T03:40:43Z"
+activated_at = "2026-09-03T03:40:43Z"
+updated_at = "2026-09-03T03:40:43Z"
+folder = "workflow/features/rfc-complete"
+worktree = "/tmp/gotth-scim-server"
+branch = "feature/rfc-complete"
+scope = ["Resolve mandatory RFC gaps and implement the standardized optional sort, search, password, Enterprise User, discovery metadata, complex filter, and weak ETag capabilities"]
+non_goals = ["Choose authentication or TLS policy", "Ship one product database adapter", "Invent vendor-specific schemas or filter operators", "Reorder Bulk operations except to resolve declared bulkId dependencies"]
+affected_files = ["**"]
+invariants = ["Advertised capabilities are complete rather than partial", "Passwords never enter resource JSON or responses", "Search work is bounded", "PATCH remains atomic", "Bulk dependencies never observe partial failed state", "Read-only and immutable attributes cannot be mutated"]
+acceptance = ["The RFC requirement matrix has no unresolved mandatory or advertised-capability gaps", "Unit, HTTP, adapter conformance, failure-path, race, fuzz, coverage, clean-clone, consumer, and graph gates pass"]
+
+[feature.rfc-complete.rollback]
+strategy = "reset feature branch to 86074ac before admission; revert admitted commits after synchronization"
+notes = "No live provider or consumer state changes"
+data_loss_risk = false
+requires_migration_down = false
+
+[[feature.rfc-complete.verification]]
+id = "verify"
+kind = "unit"
+command = "make verify"
+required = true
+timeout_seconds = 1200
 side_effect = "local_write"
 network = false
 retries = 0

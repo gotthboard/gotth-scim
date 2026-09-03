@@ -112,7 +112,7 @@ func (reconciler *Reconciler) Reconcile(ctx context.Context, request ReconcileRe
 		managed := make(map[string]Record)
 		tombstoned := make(map[string]struct{})
 		for _, definition := range reconciler.registry.definitions() {
-			records, err := transaction.List(Query{Scope: request.Scope, ResourceType: definition.Name})
+			records, err := transaction.List(Query{Scope: request.Scope, ResourceType: definition.Name, Limit: MaximumReconcileResources})
 			if err != nil {
 				return err
 			}

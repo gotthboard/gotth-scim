@@ -135,9 +135,9 @@ func TestServerDiscoveryAndBoundaries(t *testing.T) {
 	if outside.Code != http.StatusNotFound {
 		t.Fatalf("outside route = %d", outside.Code)
 	}
-	unsupported := requestServer(t, server, http.MethodGet, "/scim/v2/Users?sortBy=userName", "", "tenant", nil)
-	if unsupported.Code != http.StatusBadRequest {
-		t.Fatalf("unsupported query = %d", unsupported.Code)
+	sorted := requestServer(t, server, http.MethodGet, "/scim/v2/Users?sortBy=userName", "", "tenant", nil)
+	if sorted.Code != http.StatusOK {
+		t.Fatalf("sorted query = %d", sorted.Code)
 	}
 	method := requestServer(t, server, http.MethodPost, "/scim/v2/ServiceProviderConfig", `{}`, "tenant", nil)
 	if method.Code != http.StatusMethodNotAllowed || method.Header().Get("Allow") != "GET" {

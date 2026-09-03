@@ -43,25 +43,90 @@ func (server *Server) serveBulk(writer http.ResponseWriter, request *http.Reques
 		writeProtocolError(writer, err)
 		return
 	}
+	defer clearSecret(raw)
 	bulk, err := DecodeBulk(raw)
 	if err != nil {
 		writeProtocolError(writer, clientError(400, "invalidSyntax", "Bulk request is invalid"))
 		return
 	}
-	response := BulkResponse{Schemas: []string{BulkResponseSchema}, Operations: make([]BulkResponseOperation, 0, len(bulk.Operations))}
+	response := BulkResponse{Schemas: []string{BulkResponseSchema}, Operations: make([]BulkResponseOperation, len(bulk.Operations))}
 	references := make(map[string]bulkReference)
-	failures := 0
+	failedReferences := make(map[string]struct{})
+	declaredReferences := make(map[string]struct{})
 	for _, operation := range bulk.Operations {
-		result, reference, err := server.executeBulkOperation(request, scope, operation, references)
-		if err != nil {
-			result = bulkFailure(operation, err)
-			failures++
-		} else if operation.BulkID != "" {
-			references[operation.BulkID] = reference
+		if operation.BulkID != "" {
+			declaredReferences[operation.BulkID] = struct{}{}
 		}
-		response.Operations = append(response.Operations, result)
-		if bulk.FailOnErrors > 0 && failures >= bulk.FailOnErrors {
-			break
+	}
+	done := make([]bool, len(bulk.Operations))
+	failures := 0
+	remaining := len(bulk.Operations)
+	for remaining > 0 {
+		progress := false
+		for index, operation := range bulk.Operations {
+			if done[index] {
+				continue
+			}
+			dependencies, _ := bulkDependencies(operation)
+			blocked, ready := false, true
+			for dependency := range dependencies {
+				if _, declared := declaredReferences[dependency]; !declared {
+					blocked = true
+					break
+				}
+				if _, failed := failedReferences[dependency]; failed {
+					blocked = true
+					break
+				}
+				if _, resolved := references[dependency]; !resolved {
+					ready = false
+				}
+			}
+			if !ready && !blocked {
+				continue
+			}
+			var result BulkResponseOperation
+			var reference bulkReference
+			var operationErr error
+			if blocked {
+				operationErr = clientError(400, "invalidValue", "Bulk dependency is unknown or failed")
+			} else {
+				result, reference, operationErr = server.executeBulkOperation(request, scope, operation, references)
+			}
+			if operationErr != nil {
+				result = bulkFailure(operation, operationErr)
+				result.Location = server.bulkOperationLocation(operation, references)
+				failures++
+				if operation.BulkID != "" {
+					failedReferences[operation.BulkID] = struct{}{}
+				}
+			} else if operation.BulkID != "" {
+				references[operation.BulkID] = reference
+			}
+			response.Operations[index], done[index] = result, true
+			remaining--
+			progress = true
+			if bulk.FailOnErrors > 0 && failures >= bulk.FailOnErrors {
+				completed := make([]BulkResponseOperation, 0, len(response.Operations))
+				for position := range response.Operations {
+					if done[position] {
+						completed = append(completed, response.Operations[position])
+					}
+				}
+				response.Operations = completed
+				writeJSON(writer, http.StatusOK, response)
+				return
+			}
+		}
+		if !progress {
+			for index, operation := range bulk.Operations {
+				if done[index] {
+					continue
+				}
+				response.Operations[index] = bulkFailure(operation, clientError(409, "invalidValue", "Bulk dependency cycle is unresolved"))
+				response.Operations[index].Location = server.bulkOperationLocation(operation, references)
+				done[index], remaining = true, remaining-1
+			}
 		}
 	}
 	writeJSON(writer, http.StatusOK, response)
@@ -87,6 +152,7 @@ func (server *Server) executeBulkOperation(request *http.Request, scope string, 
 	if err != nil {
 		return BulkResponseOperation{}, bulkReference{}, clientError(400, "invalidValue", "Bulk data reference is unresolved")
 	}
+	defer clearSecret(data)
 	result := BulkResponseOperation{Method: operation.Method, BulkID: operation.BulkID}
 	switch operation.Method {
 	case http.MethodPost:
@@ -96,7 +162,7 @@ func (server *Server) executeBulkOperation(request *http.Request, scope string, 
 		}
 		result.Status = strconv.Itoa(http.StatusCreated)
 		result.Location = server.resourceLocation(definition, record.ID)
-		result.Version = record.Version
+		result.Version = server.entityTag(record.Version)
 		return result, bulkReference{id: record.ID, location: result.Location}, nil
 	case http.MethodPut:
 		record, err := server.replace(request.Context(), scope, definition, id, data, operation.Version, "")
@@ -105,7 +171,7 @@ func (server *Server) executeBulkOperation(request *http.Request, scope string, 
 		}
 		result.Status = strconv.Itoa(http.StatusOK)
 		result.Location = server.resourceLocation(definition, record.ID)
-		result.Version = record.Version
+		result.Version = server.entityTag(record.Version)
 		return result, bulkReference{}, nil
 	case http.MethodPatch:
 		patch, err := DecodePatch(data, server.maximumPatchOperations)
@@ -118,17 +184,35 @@ func (server *Server) executeBulkOperation(request *http.Request, scope string, 
 		}
 		result.Status = strconv.Itoa(http.StatusOK)
 		result.Location = server.resourceLocation(definition, record.ID)
-		result.Version = record.Version
+		result.Version = server.entityTag(record.Version)
 		return result, bulkReference{}, nil
 	case http.MethodDelete:
 		if err := server.remove(request.Context(), scope, definition, id, operation.Version, ""); err != nil {
 			return result, bulkReference{}, err
 		}
 		result.Status = strconv.Itoa(http.StatusNoContent)
+		result.Location = server.resourceLocation(definition, id)
 		return result, bulkReference{}, nil
 	default:
 		return result, bulkReference{}, clientError(400, "invalidValue", "Bulk method is unsupported")
 	}
+}
+
+func (server *Server) bulkOperationLocation(operation BulkOperation, references map[string]bulkReference) string {
+	collection, id, pathReference, err := ParseBulkPath(operation.Path)
+	if err != nil {
+		return ""
+	}
+	if pathReference != "" {
+		if reference, ok := references[pathReference]; ok {
+			id = reference.id
+		}
+	}
+	definition, ok := server.registry.definitionByEndpoint(collection)
+	if !ok || id == "" {
+		return ""
+	}
+	return server.resourceLocation(definition, id)
 }
 
 func resolveBulkData(raw json.RawMessage, references map[string]bulkReference) ([]byte, error) {

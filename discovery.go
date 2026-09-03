@@ -10,7 +10,7 @@ func (server *Server) serveServiceProviderConfig(writer http.ResponseWriter, req
 		methodNotAllowed(writer, "GET")
 		return
 	}
-	if err := rejectQuery(request.URL.Query(), nil); err != nil {
+	if err := rejectDiscoveryQuery(request); err != nil {
 		writeProtocolError(writer, err)
 		return
 	}
@@ -19,11 +19,14 @@ func (server *Server) serveServiceProviderConfig(writer http.ResponseWriter, req
 		"patch":                 map[string]any{"supported": true},
 		"bulk":                  map[string]any{"supported": true, "maxOperations": MaximumBulkOperations, "maxPayloadSize": MaximumBulkBytes},
 		"filter":                map[string]any{"supported": true, "maxResults": server.maximumPageSize},
-		"changePassword":        map[string]any{"supported": false},
-		"sort":                  map[string]any{"supported": false},
+		"changePassword":        map[string]any{"supported": server.changePasswordSupported},
+		"sort":                  map[string]any{"supported": true},
 		"etag":                  map[string]any{"supported": true},
 		"authenticationSchemes": append([]AuthenticationScheme(nil), server.authenticationSchemes...),
 		"meta":                  map[string]any{"resourceType": "ServiceProviderConfig", "location": strings.TrimSuffix(server.externalURL.String(), "/") + "/ServiceProviderConfig"},
+	}
+	if server.documentationURI != "" {
+		response["documentationUri"] = server.documentationURI
 	}
 	writeJSON(writer, http.StatusOK, response)
 }
@@ -33,7 +36,7 @@ func (server *Server) serveResourceTypes(writer http.ResponseWriter, request *ht
 		methodNotAllowed(writer, "GET")
 		return
 	}
-	if err := rejectQuery(request.URL.Query(), nil); err != nil {
+	if err := rejectDiscoveryQuery(request); err != nil {
 		writeProtocolError(writer, err)
 		return
 	}
@@ -47,11 +50,15 @@ func (server *Server) serveResourceTypes(writer http.ResponseWriter, request *ht
 			extensions = append(extensions, map[string]any{"schema": extension.Schema, "required": extension.Required})
 		}
 		location := server.discoveryLocation("ResourceTypes", definition.Name)
-		resources = append(resources, map[string]any{
+		resource := map[string]any{
 			"schemas": []string{ResourceTypeSchema}, "id": definition.Name, "name": definition.Name,
 			"endpoint": "/" + definition.Endpoint, "schema": definition.Schema, "schemaExtensions": extensions,
 			"meta": map[string]any{"resourceType": "ResourceType", "location": location},
-		})
+		}
+		if definition.Description != "" {
+			resource["description"] = definition.Description
+		}
+		resources = append(resources, resource)
 	}
 	if id != "" {
 		if len(resources) == 0 {
@@ -69,21 +76,14 @@ func (server *Server) serveSchemas(writer http.ResponseWriter, request *http.Req
 		methodNotAllowed(writer, "GET")
 		return
 	}
-	if err := rejectQuery(request.URL.Query(), nil); err != nil {
+	if err := rejectDiscoveryQuery(request); err != nil {
 		writeProtocolError(writer, err)
 		return
 	}
 	resources := make([]map[string]any, 0)
 	seen := make(map[string]struct{})
 	for _, definition := range server.registry.definitions() {
-		attributes := []SchemaAttribute{}
-		switch definition.Name {
-		case "User":
-			attributes = standardUserAttributes()
-		case "Group":
-			attributes = standardGroupAttributes()
-		}
-		resources = appendSchemaResource(resources, seen, id, definition.Schema, definition.Name, "SCIM "+definition.Name+" resource", attributes, server)
+		resources = appendSchemaResource(resources, seen, id, definition.Schema, definition.Name, definition.Description, definition.Attributes, server)
 		for _, extension := range definition.Extensions {
 			name := extension.Name
 			if name == "" {
@@ -101,6 +101,18 @@ func (server *Server) serveSchemas(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"schemas": []string{ListResponseSchema}, "totalResults": len(resources), "startIndex": 1, "itemsPerPage": len(resources), "Resources": resources})
+}
+
+func rejectDiscoveryQuery(request *http.Request) error {
+	if request.URL.Query().Get("filter") != "" {
+		return clientError(http.StatusForbidden, "", "discovery filtering is not supported")
+	}
+	// RFC 7644 section 4 requires discovery endpoints to ignore the standard
+	// query parameters. Unknown parameters are rejected so typos do not vanish.
+	return rejectQuery(request.URL.Query(), map[string]bool{
+		"attributes": true, "excludedAttributes": true, "sortBy": true,
+		"sortOrder": true, "startIndex": true, "count": true, "filter": true,
+	})
 }
 
 func appendSchemaResource(resources []map[string]any, seen map[string]struct{}, requested, schema, name, description string, attributes []SchemaAttribute, server *Server) []map[string]any {

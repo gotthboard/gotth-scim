@@ -1,6 +1,7 @@
 package scim
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,35 +35,50 @@ type AuthenticationScheme struct {
 
 // ServerConfig defines one SCIM HTTP handler.
 type ServerConfig struct {
-	Store                  Store
-	Registry               *Registry
-	ExternalURL            string
-	ResolveScope           ScopeResolver
-	Clock                  func() time.Time
-	Entropy                io.Reader
-	MaximumPageSize        int
-	MaximumPatchOperations int
-	AuthenticationSchemes  []AuthenticationScheme
+	Store                   Store
+	Registry                *Registry
+	ExternalURL             string
+	ResolveScope            ScopeResolver
+	Clock                   func() time.Time
+	Entropy                 io.Reader
+	MaximumPageSize         int
+	MaximumPatchOperations  int
+	MaximumSearchCandidates int
+	AuthenticationSchemes   []AuthenticationScheme
+	DocumentationURI        string
+	PublicDiscovery         bool
+	WeakETags               bool
+	ChangePasswordSupported bool
 }
 
 // Server is a concurrency-safe SCIM HTTP handler.
 type Server struct {
-	store                  Store
-	registry               *Registry
-	externalURL            *url.URL
-	resolveScope           ScopeResolver
-	clock                  func() time.Time
-	entropy                io.Reader
-	maximumPageSize        int
-	maximumPatchOperations int
-	authenticationSchemes  []AuthenticationScheme
-	mu                     sync.Mutex
+	store                   Store
+	registry                *Registry
+	externalURL             *url.URL
+	resolveScope            ScopeResolver
+	clock                   func() time.Time
+	entropy                 io.Reader
+	maximumPageSize         int
+	maximumPatchOperations  int
+	maximumSearchCandidates int
+	authenticationSchemes   []AuthenticationScheme
+	documentationURI        string
+	publicDiscovery         bool
+	weakETags               bool
+	changePasswordSupported bool
+	mu                      sync.Mutex
 }
 
 // NewServer validates configuration and returns a ready HTTP handler.
 func NewServer(config ServerConfig) (*Server, error) {
 	if config.Store == nil || config.ResolveScope == nil {
 		return nil, fmt.Errorf("SCIM store and scope resolver are required")
+	}
+	if config.ChangePasswordSupported {
+		if _, ok := config.Store.(PasswordStore); !ok {
+			return nil, fmt.Errorf("advertised password support requires PasswordStore")
+		}
 	}
 	if len(config.AuthenticationSchemes) == 0 || len(config.AuthenticationSchemes) > 16 {
 		return nil, fmt.Errorf("at least one authentication scheme is required")
@@ -103,10 +120,25 @@ func NewServer(config ServerConfig) (*Server, error) {
 	if config.MaximumPatchOperations == 0 {
 		config.MaximumPatchOperations = 100
 	}
-	if config.MaximumPageSize < 1 || config.MaximumPageSize > 10000 || config.MaximumPatchOperations < 1 || config.MaximumPatchOperations > 1000 {
+	if config.MaximumSearchCandidates == 0 {
+		config.MaximumSearchCandidates = defaultMaximumSearchCandidates
+	}
+	if config.DocumentationURI != "" {
+		parsed, err := url.Parse(config.DocumentationURI)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return nil, fmt.Errorf("SCIM documentation URI is invalid")
+		}
+	}
+	if config.MaximumPageSize < 1 || config.MaximumPageSize > 10000 || config.MaximumPatchOperations < 1 || config.MaximumPatchOperations > 1000 || config.MaximumSearchCandidates < 1 || config.MaximumSearchCandidates > 100000 {
 		return nil, fmt.Errorf("SCIM server limits are invalid")
 	}
-	return &Server{store: config.Store, registry: registry, externalURL: externalURL, resolveScope: config.ResolveScope, clock: config.Clock, entropy: config.Entropy, maximumPageSize: config.MaximumPageSize, maximumPatchOperations: config.MaximumPatchOperations, authenticationSchemes: append([]AuthenticationScheme(nil), config.AuthenticationSchemes...)}, nil
+	return &Server{
+		store: config.Store, registry: registry, externalURL: externalURL, resolveScope: config.ResolveScope,
+		clock: config.Clock, entropy: config.Entropy, maximumPageSize: config.MaximumPageSize,
+		maximumPatchOperations: config.MaximumPatchOperations, maximumSearchCandidates: config.MaximumSearchCandidates,
+		authenticationSchemes: append([]AuthenticationScheme(nil), config.AuthenticationSchemes...), documentationURI: config.DocumentationURI,
+		publicDiscovery: config.PublicDiscovery, weakETags: config.WeakETags, changePasswordSupported: config.ChangePasswordSupported,
+	}, nil
 }
 
 // ServeHTTP serves discovery, resource, and Bulk endpoints below ExternalURL's
@@ -116,14 +148,35 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		writeProtocolError(writer, clientError(500, "", "server is unavailable"))
 		return
 	}
-	scope, err := server.resolveScope(request)
-	if err != nil || scope == "" || !validString(scope, 1024) {
-		writeProtocolError(writer, clientError(401, "", "authentication is required"))
-		return
-	}
 	segments, err := server.routeSegments(request.URL)
 	if err != nil {
 		writeProtocolError(writer, clientError(404, "", "SCIM endpoint was not found"))
+		return
+	}
+	discovery := len(segments) > 0 && (segments[0] == "ServiceProviderConfig" || segments[0] == "ResourceTypes" || segments[0] == "Schemas")
+	scope := ""
+	if !discovery || !server.publicDiscovery {
+		scope, err = server.resolveScope(request)
+		if err != nil || scope == "" || !validString(scope, 1024) {
+			writeProtocolError(writer, clientError(401, "", "authentication is required"))
+			return
+		}
+	}
+	if len(segments) == 1 && segments[0] == ".search" {
+		server.serveSearch(writer, request, scope, nil)
+		return
+	}
+	if len(segments) == 0 {
+		if request.Method != http.MethodGet {
+			methodNotAllowed(writer, "GET")
+			return
+		}
+		search, err := searchRequestFromQuery(request.URL.Query())
+		if err != nil {
+			writeProtocolError(writer, clientError(400, "invalidValue", err.Error()))
+			return
+		}
+		server.executeSearch(writer, request, scope, server.registry.definitions(), search)
 		return
 	}
 	if len(segments) == 1 {
@@ -163,13 +216,20 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		server.serveCollection(writer, request, scope, definition)
 		return
 	}
+	if segments[1] == ".search" {
+		server.serveSearch(writer, request, scope, &definition)
+		return
+	}
 	server.serveResource(writer, request, scope, definition, segments[1])
 }
 
 func (server *Server) routeSegments(requestURL *url.URL) ([]string, error) {
 	base := strings.TrimSuffix(server.externalURL.EscapedPath(), "/")
 	path := requestURL.EscapedPath()
-	if path == base || !strings.HasPrefix(path, base+"/") {
+	if path == base {
+		return []string{}, nil
+	}
+	if !strings.HasPrefix(path, base+"/") {
 		return nil, fmt.Errorf("path is outside SCIM base")
 	}
 	relative := strings.TrimPrefix(path, base+"/")
@@ -190,7 +250,11 @@ func (server *Server) serveCollection(writer http.ResponseWriter, request *http.
 	case http.MethodGet:
 		server.listResources(writer, request, scope, definition)
 	case http.MethodPost:
-		if err := rejectQuery(request.URL.Query(), nil); err != nil {
+		if err := rejectQuery(request.URL.Query(), map[string]bool{"attributes": true, "excludedAttributes": true}); err != nil {
+			writeProtocolError(writer, err)
+			return
+		}
+		if err := validateResourceProjection(request.URL.Query(), definition, server.maximumPageSize); err != nil {
 			writeProtocolError(writer, err)
 			return
 		}
@@ -205,7 +269,11 @@ func (server *Server) serveResource(writer http.ResponseWriter, request *http.Re
 		writeProtocolError(writer, clientError(404, "", "SCIM resource was not found"))
 		return
 	}
-	if err := rejectQuery(request.URL.Query(), nil); err != nil {
+	if err := rejectQuery(request.URL.Query(), map[string]bool{"attributes": true, "excludedAttributes": true}); err != nil {
+		writeProtocolError(writer, err)
+		return
+	}
+	if err := validateResourceProjection(request.URL.Query(), definition, server.maximumPageSize); err != nil {
 		writeProtocolError(writer, err)
 		return
 	}
@@ -223,11 +291,18 @@ func (server *Server) serveResource(writer http.ResponseWriter, request *http.Re
 	}
 }
 
-func (server *Server) getResource(writer http.ResponseWriter, request *http.Request, scope string, definition ResourceDefinition, id string) {
-	if err := rejectQuery(request.URL.Query(), nil); err != nil {
-		writeProtocolError(writer, err)
-		return
+func validateResourceProjection(query url.Values, definition ResourceDefinition, maximumPageSize int) error {
+	request, err := searchRequestFromQuery(query)
+	if err != nil {
+		return clientError(400, "invalidValue", err.Error())
 	}
+	if _, err := compileSearch(request, definition, maximumPageSize); err != nil {
+		return clientError(400, "invalidValue", err.Error())
+	}
+	return nil
+}
+
+func (server *Server) getResource(writer http.ResponseWriter, request *http.Request, scope string, definition ResourceDefinition, id string) {
 	var record Record
 	err := server.store.Transact(request.Context(), func(transaction Transaction) error {
 		var err error
@@ -244,88 +319,20 @@ func (server *Server) getResource(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if !proceed {
-		writer.Header().Set("ETag", record.Version)
+		writer.Header().Set("ETag", server.entityTag(record.Version))
 		writer.WriteHeader(http.StatusNotModified)
 		return
 	}
-	server.writeRecord(writer, http.StatusOK, definition, record)
+	server.writeRecordProjected(writer, http.StatusOK, definition, record, request.URL.Query())
 }
 
 func (server *Server) listResources(writer http.ResponseWriter, request *http.Request, scope string, definition ResourceDefinition) {
-	query := request.URL.Query()
-	if err := rejectQuery(query, map[string]bool{"filter": true, "startIndex": true, "count": true}); err != nil {
-		writeProtocolError(writer, err)
-		return
-	}
-	start, err := queryInteger(query, "startIndex", 1)
+	search, err := searchRequestFromQuery(request.URL.Query())
 	if err != nil {
-		writeProtocolError(writer, clientError(400, "invalidValue", "startIndex is invalid"))
+		writeProtocolError(writer, clientError(400, "invalidValue", err.Error()))
 		return
 	}
-	if start < 1 {
-		start = 1
-	}
-	count, err := queryInteger(query, "count", server.maximumPageSize)
-	if err != nil || count < 0 {
-		writeProtocolError(writer, clientError(400, "invalidValue", "count is invalid"))
-		return
-	}
-	if count > server.maximumPageSize {
-		count = server.maximumPageSize
-	}
-	storeQuery := Query{Scope: scope, ResourceType: definition.Name}
-	if filter := query.Get("filter"); filter != "" {
-		attribute, value, err := parsePatchFilter(filter)
-		if err != nil {
-			writeProtocolError(writer, clientError(400, "invalidFilter", "filter is unsupported"))
-			return
-		}
-		canonical, exists := admittedFilter(definition, attribute)
-		if !exists {
-			writeProtocolError(writer, clientError(400, "invalidFilter", "filter attribute is unsupported"))
-			return
-		}
-		storeQuery.Attribute, storeQuery.Value = canonical, value
-	}
-	var records []Record
-	err = server.store.Transact(request.Context(), func(transaction Transaction) error {
-		var err error
-		records, err = transaction.List(storeQuery)
-		return err
-	})
-	if err != nil {
-		writeStoreError(writer, err)
-		return
-	}
-	total := len(records)
-	begin := start - 1
-	if begin > total {
-		begin = total
-	}
-	end := begin + count
-	if end > total {
-		end = total
-	}
-	resources := make([]Document, 0, end-begin)
-	for _, record := range records[begin:end] {
-		document, err := server.renderRecord(definition, record)
-		if err != nil {
-			writeProtocolError(writer, clientError(500, "", "stored resource is invalid"))
-			return
-		}
-		resources = append(resources, document)
-	}
-	response := map[string]any{"schemas": []string{ListResponseSchema}, "totalResults": total, "startIndex": start, "itemsPerPage": len(resources), "Resources": resources}
-	writeJSON(writer, http.StatusOK, response)
-}
-
-func admittedFilter(definition ResourceDefinition, candidate string) (string, bool) {
-	for _, attribute := range definition.FilterAttributes {
-		if strings.EqualFold(attribute, candidate) {
-			return attribute, true
-		}
-	}
-	return "", false
+	server.executeSearch(writer, request, scope, []ResourceDefinition{definition}, search)
 }
 
 func (server *Server) createResource(writer http.ResponseWriter, request *http.Request, scope string, definition ResourceDefinition) {
@@ -339,14 +346,20 @@ func (server *Server) createResource(writer http.ResponseWriter, request *http.R
 		writeStoreError(writer, err)
 		return
 	}
-	server.writeRecord(writer, http.StatusCreated, definition, record)
+	server.writeRecordProjected(writer, http.StatusCreated, definition, record, request.URL.Query())
 }
 
 func (server *Server) create(ctx context.Context, scope, manager string, definition ResourceDefinition, raw []byte) (Record, error) {
+	defer clearSecret(raw)
 	document, err := DecodeDocument(raw)
 	if err != nil {
 		return Record{}, clientError(400, "invalidSyntax", "resource JSON is invalid")
 	}
+	password, err := extractPassword(document, server.changePasswordSupported, definition.Name)
+	if err != nil {
+		return Record{}, err
+	}
+	defer clearSecret(password)
 	document, indexes, externalID, err := prepareResource(definition, document, CreateMode, "")
 	if err != nil {
 		return Record{}, clientError(400, "invalidValue", "resource is invalid")
@@ -355,11 +368,18 @@ func (server *Server) create(ctx context.Context, scope, manager string, definit
 	if err != nil {
 		return Record{}, err
 	}
-	record, err := newRecord(scope, manager, definition.Name, id, externalID, document, indexes, now)
-	if err != nil {
-		return Record{}, err
-	}
-	if err := server.store.Transact(ctx, func(transaction Transaction) error { return transaction.Create(record) }); err != nil {
+	var record Record
+	if err := server.store.Transact(ctx, func(transaction Transaction) error {
+		credentialVersion, err := writePassword(transaction, scope, definition.Name, id, password)
+		if err != nil {
+			return err
+		}
+		record, err = newRecord(scope, manager, definition.Name, id, externalID, document, indexes, now, credentialVersion)
+		if err != nil {
+			return err
+		}
+		return transaction.Create(record)
+	}); err != nil {
 		return Record{}, err
 	}
 	return record, nil
@@ -376,18 +396,20 @@ func (server *Server) replaceResource(writer http.ResponseWriter, request *http.
 		writeStoreError(writer, err)
 		return
 	}
-	server.writeRecord(writer, http.StatusOK, definition, record)
+	server.writeRecordProjected(writer, http.StatusOK, definition, record, request.URL.Query())
 }
 
 func (server *Server) replace(ctx context.Context, scope string, definition ResourceDefinition, id string, raw []byte, ifMatch, ifNoneMatch string) (Record, error) {
+	defer clearSecret(raw)
 	document, err := DecodeDocument(raw)
 	if err != nil {
 		return Record{}, clientError(400, "invalidSyntax", "resource JSON is invalid")
 	}
-	document, indexes, externalID, err := prepareResource(definition, document, ReplaceMode, id)
+	password, err := extractPassword(document, server.changePasswordSupported, definition.Name)
 	if err != nil {
-		return Record{}, clientError(400, "invalidValue", "resource is invalid")
+		return Record{}, err
 	}
+	defer clearSecret(password)
 	now, err := server.currentTime()
 	if err != nil {
 		return Record{}, err
@@ -398,11 +420,29 @@ func (server *Server) replace(ctx context.Context, scope string, definition Reso
 		if err != nil {
 			return err
 		}
-		if err := evaluateWritePreconditions(ifMatch, ifNoneMatch, current); err != nil {
+		if err := server.evaluateWritePreconditions(ifMatch, ifNoneMatch, current); err != nil {
 			return err
 		}
+		currentDocument, err := DecodeDocument(current.Data)
+		if err != nil {
+			return err
+		}
+		if err := enforceReplacementMutability(definition, currentDocument, document); err != nil {
+			return err
+		}
+		prepared, indexes, externalID, err := prepareResource(definition, document, ReplaceMode, id)
+		if err != nil {
+			return clientError(400, "invalidValue", "resource is invalid")
+		}
+		credentialVersion := current.CredentialVersion
+		if len(password) != 0 {
+			credentialVersion, err = writePassword(transaction, scope, definition.Name, id, password)
+			if err != nil {
+				return err
+			}
+		}
 		var changed bool
-		result, changed, err = replacementRecord(current, externalID, document, indexes, now)
+		result, changed, err = replacementRecord(current, externalID, prepared, indexes, now, credentialVersion)
 		if err != nil || !changed {
 			return err
 		}
@@ -417,6 +457,7 @@ func (server *Server) patchResource(writer http.ResponseWriter, request *http.Re
 		writeProtocolError(writer, err)
 		return
 	}
+	defer clearSecret(raw)
 	patch, err := DecodePatch(raw, server.maximumPatchOperations)
 	if err != nil {
 		writeProtocolError(writer, clientError(400, "invalidSyntax", "PATCH request is invalid"))
@@ -427,7 +468,7 @@ func (server *Server) patchResource(writer http.ResponseWriter, request *http.Re
 		writeStoreError(writer, err)
 		return
 	}
-	server.writeRecord(writer, http.StatusOK, definition, record)
+	server.writeRecordProjected(writer, http.StatusOK, definition, record, request.URL.Query())
 }
 
 func (server *Server) patch(ctx context.Context, scope string, definition ResourceDefinition, id string, patch PatchRequest, ifMatch, ifNoneMatch string) (Record, error) {
@@ -441,19 +482,42 @@ func (server *Server) patch(ctx context.Context, scope string, definition Resour
 		if err != nil {
 			return err
 		}
-		if err := evaluateWritePreconditions(ifMatch, ifNoneMatch, current); err != nil {
+		if err := server.evaluateWritePreconditions(ifMatch, ifNoneMatch, current); err != nil {
 			return err
 		}
 		document, err := DecodeDocument(current.Data)
 		if err != nil {
 			return err
 		}
-		document, indexes, externalID, err := ApplyPatch(definition, document, patch, id)
+		document, err = applyPatchDocument(definition, document, patch)
 		if err != nil {
 			return err
 		}
+		password, err := extractPassword(document, server.changePasswordSupported, definition.Name)
+		if err != nil {
+			return err
+		}
+		defer clearSecret(password)
+		currentDocument, err := DecodeDocument(current.Data)
+		if err != nil {
+			return err
+		}
+		if err := enforceReplacementMutability(definition, currentDocument, document); err != nil {
+			return err
+		}
+		document, indexes, externalID, err := prepareResource(definition, document, ReplaceMode, id)
+		if err != nil {
+			return clientError(400, "invalidValue", "patched resource is invalid")
+		}
+		credentialVersion := current.CredentialVersion
+		if len(password) != 0 {
+			credentialVersion, err = writePassword(transaction, scope, definition.Name, id, password)
+			if err != nil {
+				return err
+			}
+		}
 		var changed bool
-		result, changed, err = replacementRecord(current, externalID, document, indexes, now)
+		result, changed, err = replacementRecord(current, externalID, document, indexes, now, credentialVersion)
 		if err != nil || !changed {
 			return err
 		}
@@ -481,7 +545,7 @@ func (server *Server) remove(ctx context.Context, scope string, definition Resou
 		if err != nil {
 			return err
 		}
-		if err := evaluateWritePreconditions(ifMatch, ifNoneMatch, current); err != nil {
+		if err := server.evaluateWritePreconditions(ifMatch, ifNoneMatch, current); err != nil {
 			return err
 		}
 		tombstone := Tombstone{Scope: current.Scope, ResourceType: current.ResourceType, ID: current.ID, ExternalID: current.ExternalID, Manager: current.Manager, Version: current.Version, DeletedAt: now}
@@ -505,6 +569,30 @@ func evaluateWritePreconditions(ifMatch, ifNoneMatch string, current Record) err
 		return ErrPrecondition
 	}
 	return nil
+}
+
+func (server *Server) evaluateWritePreconditions(ifMatch, ifNoneMatch string, current Record) error {
+	if server.weakETags && ifMatch != "" {
+		candidates, err := parseEntityTags(ifMatch)
+		if err != nil {
+			return clientError(400, "invalidValue", "If-Match is malformed")
+		}
+		currentTag, err := parseSingleStrongTag(current.Version)
+		if err != nil {
+			return err
+		}
+		matched := candidates.star
+		for _, candidate := range candidates.tags {
+			if candidate.opaque == currentTag {
+				matched = true
+			}
+		}
+		if !matched {
+			return ErrPrecondition
+		}
+		ifMatch = ""
+	}
+	return evaluateWritePreconditions(ifMatch, ifNoneMatch, current)
 }
 
 func (server *Server) identityAndTime() (string, time.Time, error) {
@@ -532,13 +620,34 @@ func (server *Server) currentTime() (time.Time, error) {
 }
 
 func (server *Server) writeRecord(writer http.ResponseWriter, status int, definition ResourceDefinition, record Record) {
+	server.writeRecordProjected(writer, status, definition, record, nil)
+}
+
+func (server *Server) writeRecordProjected(writer http.ResponseWriter, status int, definition ResourceDefinition, record Record, query url.Values) {
 	document, err := server.renderRecord(definition, record)
 	if err != nil {
 		writeProtocolError(writer, clientError(500, "", "stored resource is invalid"))
 		return
 	}
+	if query != nil {
+		search, err := searchRequestFromQuery(query)
+		if err != nil {
+			writeProtocolError(writer, clientError(400, "invalidValue", err.Error()))
+			return
+		}
+		plan, err := compileSearch(search, definition, server.maximumPageSize)
+		if err != nil {
+			writeProtocolError(writer, clientError(400, "invalidValue", err.Error()))
+			return
+		}
+		document, err = projectDocument(document, plan.include, plan.exclude, definition)
+		if err != nil {
+			writeProtocolError(writer, clientError(500, "", "resource projection failed"))
+			return
+		}
+	}
 	location := server.resourceLocation(definition, record.ID)
-	writer.Header().Set("ETag", record.Version)
+	writer.Header().Set("ETag", server.entityTag(record.Version))
 	writer.Header().Set("Location", location)
 	writer.Header().Set("Content-Location", location)
 	writeJSON(writer, status, document)
@@ -552,15 +661,31 @@ func (server *Server) renderRecord(definition ResourceDefinition, record Record)
 	if err != nil {
 		return nil, err
 	}
+	prepared, indexes, externalID, err := prepareResource(definition, document, ReplaceMode, record.ID)
+	if err != nil || externalID != record.ExternalID || !reflect.DeepEqual(indexes, record.Indexes) {
+		return nil, fmt.Errorf("stored resource violates its schema")
+	}
+	canonical, err := canonicalDocument(prepared)
+	if err != nil || !bytes.Equal(canonical, record.Data) {
+		return nil, fmt.Errorf("stored resource is not canonical")
+	}
+	document = prepared
 	document["id"] = record.ID
 	document["meta"] = map[string]any{
 		"resourceType": record.ResourceType,
 		"created":      record.Created.UTC().Format(time.RFC3339Nano),
 		"lastModified": record.LastModified.UTC().Format(time.RFC3339Nano),
-		"version":      record.Version,
+		"version":      server.entityTag(record.Version),
 		"location":     server.resourceLocation(definition, record.ID),
 	}
 	return document, nil
+}
+
+func (server *Server) entityTag(strong string) string {
+	if server.weakETags {
+		return "W/" + strong
+	}
+	return strong
 }
 
 func (server *Server) resourceLocation(definition ResourceDefinition, id string) string {

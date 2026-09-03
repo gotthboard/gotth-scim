@@ -32,7 +32,7 @@ func TestMemoryStoreConcurrentTransactions(t *testing.T) {
 	}
 	wait.Wait()
 	if err := store.Transact(context.Background(), func(transaction Transaction) error {
-		records, err := transaction.List(Query{Scope: "scope", ResourceType: "User"})
+		records, err := transaction.List(Query{Scope: "scope", ResourceType: "User", Limit: 100})
 		if err != nil || len(records) != 20 {
 			t.Fatalf("List() = (%d, %v)", len(records), err)
 		}

@@ -4,11 +4,13 @@
 It provides:
 
 - strict, bounded, collision-safe JSON and protocol decoding;
-- standard User and Group validation plus registered schema extensions;
+- standard User, Group, and Enterprise User validation plus registered schema extensions;
 - ServiceProviderConfig, ResourceTypes, Schemas, Users, Groups, and Bulk HTTP
-  endpoints;
-- strong ETags and transactional HTTP preconditions;
-- bounded equality filtering, pagination, PATCH, and ordered Bulk execution;
+  endpoints, including GET and POST `.search`;
+- configurable strong or weak ETags and transactional HTTP preconditions;
+- bounded full-expression filtering, sorting, projection, pagination, PATCH,
+  and dependency-aware Bulk execution;
+- optional atomic password delegation that never stores or returns plaintext;
 - opaque persistent IDs, immediate deletion visibility, and irreversible
   ownership-scoped tombstones;
 - manager-scoped atomic reconciliation that preserves provider IDs; and
@@ -36,5 +38,5 @@ handler, _ := scim.NewServer(scim.ServerConfig{
 })
 ```
 
-See `docs/conformance.md` for the exact supported RFC surface. Unsupported
-optional behavior is rejected rather than silently ignored.
+See `docs/conformance.md` for the exact supported RFC surface and the
+consumer-owned deployment requirements.

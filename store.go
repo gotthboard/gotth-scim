@@ -13,6 +13,7 @@ var (
 	ErrConflict     = errors.New("SCIM resource conflicts with existing state")
 	ErrPrecondition = errors.New("SCIM resource precondition failed")
 	ErrTombstoned   = errors.New("SCIM resource identity is tombstoned")
+	ErrTooMany      = errors.New("SCIM query result exceeds its bound")
 )
 
 // IndexKey is one storage lookup and uniqueness key derived from validated
@@ -33,10 +34,13 @@ type Record struct {
 	ExternalID   string
 	Manager      string
 	Version      string
-	Created      time.Time
-	LastModified time.Time
-	Data         []byte
-	Indexes      []IndexKey
+	// CredentialVersion is opaque non-secret adapter state. It changes when a
+	// write-only credential changes and is therefore covered by Version.
+	CredentialVersion string
+	Created           time.Time
+	LastModified      time.Time
+	Data              []byte
+	Indexes           []IndexKey
 }
 
 // Tombstone permanently reserves a deleted provider ID and records the
@@ -58,6 +62,9 @@ type Query struct {
 	ResourceType string
 	Attribute    string
 	Value        string
+	// Limit is a hard upper bound. A store MUST return ErrTooMany instead of
+	// silently truncating when more matching records exist.
+	Limit int
 }
 
 // Store runs one callback in one atomic transaction. Implementations must call
@@ -77,12 +84,30 @@ type Transaction interface {
 	Tombstones(scope, resourceType string) ([]Tombstone, error)
 }
 
+// PasswordTransaction is the optional atomic credential adapter used when
+// changePassword is advertised. It MUST consume but never retain the supplied
+// slice, return a non-secret revision token, and commit or roll back with the
+// enclosing Store transaction.
+type PasswordTransaction interface {
+	SetPassword(scope, resourceType, id string, password []byte) (string, error)
+}
+
+// PasswordStore is an explicit capability marker. Servers refuse to
+// advertise changePassword unless the configured Store implements it.
+type PasswordStore interface {
+	Store
+	SupportsPasswordTransactions()
+}
+
 func validateRecord(record Record) error {
 	if record.Scope == "" || !validString(record.Scope, 1024) || !validName(record.ResourceType) || !validResourceID(record.ID) || !validString(record.Manager, 1024) || !validString(record.ExternalID, maximumStringBytes) {
 		return fmt.Errorf("record identity is invalid")
 	}
 	if record.Version == "" || record.Created.IsZero() || record.LastModified.Before(record.Created) || len(record.Data) == 0 || len(record.Data) > MaximumResourceBytes {
 		return fmt.Errorf("record metadata is invalid")
+	}
+	if record.CredentialVersion != "" && !validString(record.CredentialVersion, 1024) {
+		return fmt.Errorf("record credential version is invalid")
 	}
 	if _, err := parseSingleStrongTag(record.Version); err != nil {
 		return fmt.Errorf("record version is invalid")

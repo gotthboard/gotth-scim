@@ -14,10 +14,14 @@ and leaves an immutable ownership-scoped tombstone. Reconciliation only
 deletes resources bearing the exact manager marker supplied by its caller.
 
 The server must remain honest about its supported RFC surface. It supports the
-interoperable equality-filter and PATCH path subset documented in the
-conformance matrix and rejects unsupported operations explicitly.
+complete RFC 7644 filter grammar, sorting, GET and POST search, attribute
+projection, PATCH, Bulk dependency handling, ETags, password delegation, and
+the RFC 7643 Enterprise User extension. Every capability reported as supported
+must implement its normative conditional requirements rather than a convenient
+subset.
 
-Non-goals: choosing bearer-token policy, mapping SCIM users to a product's
-authorization model, storing passwords, sending notifications, invalidating
-product sessions, implementing a product database adapter, or importing
-Mailu's email/alias semantics.
+Non-goals: choosing bearer-token or TLS policy, mapping SCIM users to a
+product's authorization model, storing plaintext passwords, sending
+notifications, invalidating product sessions, implementing a product database
+adapter, inventing vendor filter operators, or importing Mailu's email/alias
+semantics.

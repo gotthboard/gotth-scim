@@ -56,6 +56,18 @@ func DecodeBulk(raw []byte) (BulkRequest, error) {
 	for index := range request.Operations {
 		operation := &request.Operations[index]
 		operation.Method = strings.ToUpper(operation.Method)
+		if operation.Method == "POST" {
+			if !validBulkID(operation.BulkID) {
+				return BulkRequest{}, fmt.Errorf("Bulk POST operation %d is invalid", index)
+			}
+			if _, exists := seenBulkIDs[operation.BulkID]; exists {
+				return BulkRequest{}, fmt.Errorf("Bulk bulkId %q is duplicated", operation.BulkID)
+			}
+			seenBulkIDs[operation.BulkID] = struct{}{}
+		}
+	}
+	for index := range request.Operations {
+		operation := &request.Operations[index]
 		collection, resourceID, bulkReference, err := ParseBulkPath(operation.Path)
 		if err != nil {
 			return BulkRequest{}, fmt.Errorf("Bulk operation %d: %w", index, err)
@@ -65,29 +77,59 @@ func DecodeBulk(raw []byte) (BulkRequest, error) {
 			if resourceID != "" || bulkReference != "" || !validBulkID(operation.BulkID) || !isJSONObject(operation.Data) {
 				return BulkRequest{}, fmt.Errorf("Bulk POST operation %d is invalid", index)
 			}
-			if _, exists := seenBulkIDs[operation.BulkID]; exists {
-				return BulkRequest{}, fmt.Errorf("Bulk bulkId %q is duplicated", operation.BulkID)
-			}
-			seenBulkIDs[operation.BulkID] = struct{}{}
 		case "PUT", "PATCH":
 			if collection == "" || resourceID == "" && bulkReference == "" || !isJSONObject(operation.Data) || operation.BulkID != "" {
 				return BulkRequest{}, fmt.Errorf("Bulk mutation operation %d is invalid", index)
-			}
-			if _, resolved := seenBulkIDs[bulkReference]; bulkReference != "" && !resolved {
-				return BulkRequest{}, fmt.Errorf("Bulk operation %d references an unknown or later bulkId", index)
 			}
 		case "DELETE":
 			if collection == "" || resourceID == "" && bulkReference == "" || len(operation.Data) != 0 || operation.BulkID != "" {
 				return BulkRequest{}, fmt.Errorf("Bulk DELETE operation %d is invalid", index)
 			}
-			if _, resolved := seenBulkIDs[bulkReference]; bulkReference != "" && !resolved {
-				return BulkRequest{}, fmt.Errorf("Bulk operation %d references an unknown or later bulkId", index)
-			}
 		default:
 			return BulkRequest{}, fmt.Errorf("Bulk operation %d uses an unsupported method", index)
 		}
+		if _, err := bulkDependencies(*operation); err != nil {
+			return BulkRequest{}, fmt.Errorf("Bulk operation %d data is invalid", index)
+		}
 	}
 	return request, nil
+}
+
+func bulkDependencies(operation BulkOperation) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	_, _, pathReference, err := ParseBulkPath(operation.Path)
+	if err != nil {
+		return nil, err
+	}
+	if pathReference != "" {
+		result[pathReference] = struct{}{}
+	}
+	if len(operation.Data) == 0 {
+		return result, nil
+	}
+	document, err := DecodeDocument(operation.Data)
+	if err != nil {
+		return nil, err
+	}
+	collectBulkDependencies(map[string]any(document), result)
+	return result, nil
+}
+
+func collectBulkDependencies(value any, result map[string]struct{}) {
+	switch typed := value.(type) {
+	case string:
+		if strings.HasPrefix(typed, "bulkId:") && len(typed) > len("bulkId:") {
+			result[strings.TrimPrefix(typed, "bulkId:")] = struct{}{}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			collectBulkDependencies(item, result)
+		}
+	case []any:
+		for _, item := range typed {
+			collectBulkDependencies(item, result)
+		}
+	}
 }
 
 func validBulkID(value string) bool {

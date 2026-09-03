@@ -12,3 +12,14 @@
 
 Provider-specific adapters such as Authentik and product-specific persistence
 remain later consumer work. They do not belong in this repository's core.
+
+RFC completion proceeds in dependency order:
+
+1. Replace the equality-only parser with a bounded RFC filter AST and evaluator.
+2. Add bounded multi-resource search, sorting, projection, and `/.search`.
+3. Complete schema mutability/returnability, PATCH, Enterprise User, and
+   transactional password handling.
+4. Resolve forward/circular Bulk dependencies and exact response semantics.
+5. Correct discovery behavior and expose optional metadata/ETag configuration.
+6. Run the complete requirement matrix, external consumer, race, fuzz,
+   clean-clone, and graph admission gates.

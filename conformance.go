@@ -22,6 +22,19 @@ func CheckStore(ctx context.Context, factory func() Store) error {
 	if err := store.Transact(ctx, func(transaction Transaction) error { return transaction.Create(first) }); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
+	second := conformanceRecord("scope-a", "id-list", "external-list", "Another", now)
+	if err := store.Transact(ctx, func(transaction Transaction) error { return transaction.Create(second) }); err != nil {
+		return fmt.Errorf("second create: %w", err)
+	}
+	if err := store.Transact(ctx, func(transaction Transaction) error {
+		_, err := transaction.List(Query{Scope: "scope-a", ResourceType: "User", Limit: 1})
+		if !errors.Is(err, ErrTooMany) {
+			return fmt.Errorf("bounded list did not fail closed: %v", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	first.Data[0] = 'x'
 	first.Indexes[0].Value = "mutated"
 	if err := store.Transact(ctx, func(transaction Transaction) error {

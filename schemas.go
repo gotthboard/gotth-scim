@@ -11,11 +11,13 @@ import (
 const (
 	UserSchema                  = "urn:ietf:params:scim:schemas:core:2.0:User"
 	GroupSchema                 = "urn:ietf:params:scim:schemas:core:2.0:Group"
+	EnterpriseUserSchema        = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
 	ListResponseSchema          = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 	PatchSchema                 = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
 	ErrorSchema                 = "urn:ietf:params:scim:api:messages:2.0:Error"
 	BulkRequestSchema           = "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
 	BulkResponseSchema          = "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
+	SearchRequestSchema         = "urn:ietf:params:scim:api:messages:2.0:SearchRequest"
 	ServiceProviderConfigSchema = "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
 	ResourceTypeSchema          = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
 	SchemaSchema                = "urn:ietf:params:scim:schemas:core:2.0:Schema"

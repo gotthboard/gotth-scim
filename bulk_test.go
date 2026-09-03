@@ -38,11 +38,9 @@ func TestDecodeBulk(t *testing.T) {
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"GET","path":"/Users"}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"POST","bulkId":"x","path":"/Users","data":"not-an-object"}]}`),
-		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"PATCH","path":"/Users/bulkId:later","data":{}},{"method":"POST","bulkId":"later","path":"/Users","data":{}}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"POST","bulkId":"x","path":"/Users","data":{}},{"method":"POST","bulkId":"x","path":"/Groups","data":{}}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"DELETE","path":"/Users/member","data":{}}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"PUT","path":"/Users/member"}]}`),
-		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"POST","bulkId":"x","path":"/Users","data":{}},{"method":"DELETE","path":"/Users/bulkId:missing"}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[]} trailing`),
 	}
 	for index, value := range invalid {

@@ -216,7 +216,6 @@ func TestPatchAdditionalOperations(t *testing.T) {
 	invalid := []string{
 		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"add","value":"wrong"}]}`,
 		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"missing.sub","value":"x"}]}`,
-		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"emails[type co \"work\"].value","value":"x"}]}`,
 		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"emails[type eq \"none\"].value","value":"x"}]}`,
 		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"emails[type eq \"work\"]","value":"x"}]}`,
 		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"remove","path":"missing"}]}`,
@@ -269,8 +268,6 @@ func TestServerReplacePaginationAndErrors(t *testing.T) {
 		t.Fatalf("page = %#v", decoded)
 	}
 	for _, path := range []string{
-		`/scim/v2/Users?filter=userName%20co%20%22x%22`,
-		`/scim/v2/Users?filter=displayName%20eq%20%22x%22`,
 		`/scim/v2/Users?count=-1`,
 		`/scim/v2/Users?count=bad`,
 	} {

@@ -41,3 +41,25 @@ func FuzzDecodeBulk(fuzzer *testing.F) {
 		}
 	})
 }
+
+func FuzzParseFilter(fuzzer *testing.F) {
+	for _, seed := range []string{`userName eq "member"`, `emails[type eq "work" and value co "@"]`, `not (active eq false)`, ""} {
+		fuzzer.Add(seed)
+	}
+	definition := DefaultDefinitions()[0]
+	fuzzer.Fuzz(func(t *testing.T, raw string) {
+		expression, err := ParseFilter(raw, definition)
+		if err != nil {
+			return
+		}
+		if _, err := MatchFilter(expression, Document{"schemas": []any{UserSchema}, "userName": "member"}); err != nil {
+			t.Fatalf("validated filter failed evaluation: %v", err)
+		}
+	})
+}
+
+func FuzzDecodeSearchRequest(fuzzer *testing.F) {
+	fuzzer.Add([]byte(`{"schemas":["` + SearchRequestSchema + `"],"filter":"userName pr"}`))
+	fuzzer.Add([]byte(`{}`))
+	fuzzer.Fuzz(func(t *testing.T, raw []byte) { _, _ = decodeSearchRequest(raw) })
+}

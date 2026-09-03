@@ -37,7 +37,7 @@ func TestReconcilerLifecycleAndOwnership(t *testing.T) {
 
 	var originalID string
 	if err := store.Transact(context.Background(), func(transaction Transaction) error {
-		records, err := transaction.List(Query{Scope: "tenant", ResourceType: "User", Attribute: "externalId", Value: "upstream-user"})
+		records, err := transaction.List(Query{Scope: "tenant", ResourceType: "User", Attribute: "externalId", Value: "upstream-user", Limit: 10})
 		if err == nil && len(records) == 1 {
 			originalID = records[0].ID
 		}
@@ -51,7 +51,7 @@ func TestReconcilerLifecycleAndOwnership(t *testing.T) {
 		t.Fatalf("update reconcile = (%+v, %v)", result, err)
 	}
 	if err := store.Transact(context.Background(), func(transaction Transaction) error {
-		records, err := transaction.List(Query{Scope: "tenant", ResourceType: "User", Attribute: "externalId", Value: "upstream-user"})
+		records, err := transaction.List(Query{Scope: "tenant", ResourceType: "User", Attribute: "externalId", Value: "upstream-user", Limit: 10})
 		if err != nil || len(records) != 1 || records[0].ID != originalID {
 			return errors.New("reconciliation did not preserve provider ID")
 		}

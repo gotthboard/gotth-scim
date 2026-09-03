@@ -3,6 +3,7 @@ package scim
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -13,30 +14,43 @@ type patchPath struct {
 	sub       string
 }
 
-// ApplyPatch applies the package's documented PATCH subset to a private copy
-// of current and returns a fully revalidated replacement document.
+// ApplyPatch applies an RFC 7644 PATCH request to a private copy of current
+// and returns a fully revalidated replacement document.
 func ApplyPatch(definition ResourceDefinition, current Document, request PatchRequest, resourceID string) (Document, []IndexKey, string, error) {
-	working, err := cloneDocument(current)
+	working, err := applyPatchDocument(definition, current, request)
 	if err != nil {
 		return nil, nil, "", err
-	}
-	for index, operation := range request.Operations {
-		var value any
-		if len(operation.Value) != 0 {
-			value, err = decodePatchValue(operation.Value)
-			if err != nil {
-				return nil, nil, "", clientError(400, "invalidValue", fmt.Sprintf("PATCH operation %d value is invalid", index))
-			}
-		}
-		if err := applyPatchOperation(definition, working, operation.Op, operation.Path, value); err != nil {
-			return nil, nil, "", err
-		}
 	}
 	prepared, indexes, externalID, err := prepareResource(definition, working, ReplaceMode, resourceID)
 	if err != nil {
 		return nil, nil, "", clientError(400, "invalidValue", "patched resource is invalid")
 	}
 	return prepared, indexes, externalID, nil
+}
+
+func applyPatchDocument(definition ResourceDefinition, current Document, request PatchRequest) (Document, error) {
+	working, err := cloneDocument(current)
+	if err != nil {
+		return nil, err
+	}
+	for index, operation := range request.Operations {
+		var value any
+		if len(operation.Value) != 0 {
+			value, err = decodePatchValue(operation.Value)
+			if err != nil {
+				return nil, clientError(400, "invalidValue", fmt.Sprintf("PATCH operation %d value is invalid", index))
+			}
+		}
+		if err := applyPatchOperation(definition, working, operation.Op, operation.Path, value); err != nil {
+			return nil, err
+		}
+	}
+	for _, extension := range definition.Extensions {
+		if _, exists := working[extension.Schema]; exists {
+			ensureSchema(working, extension.Schema)
+		}
+	}
+	return working, nil
 }
 
 func decodePatchValue(raw json.RawMessage) (any, error) {
@@ -75,11 +89,12 @@ func applyPatchOperation(definition ResourceDefinition, document Document, opera
 	if path.extension != "" {
 		raw, exists := target[path.extension]
 		if !exists {
-			if operation == "remove" || path.filter != "" || path.sub != "" {
+			if operation != "add" || path.filter != "" {
 				return clientError(400, "noTarget", "PATCH extension target does not exist")
 			}
 			nested := make(map[string]any)
 			target[path.extension] = nested
+			ensureSchema(document, path.extension)
 			target = nested
 		} else {
 			nested, ok := raw.(map[string]any)
@@ -90,9 +105,13 @@ func applyPatchOperation(definition ResourceDefinition, document Document, opera
 		}
 	}
 	if path.filter == "" {
+		if path.extension == "" && path.attribute == "password" && path.sub == "" && (operation == "add" || operation == "replace") {
+			target[path.attribute] = value
+			return nil
+		}
 		return applyDirectPatch(target, path.attribute, path.sub, operation, value)
 	}
-	return applyFilteredPatch(target, path, operation, value)
+	return applyFilteredPatch(definition, target, path, operation, value)
 }
 
 func parsePatchPath(definition ResourceDefinition, raw string) (patchPath, error) {
@@ -142,6 +161,13 @@ func parsePatchPath(definition ResourceDefinition, raw string) (patchPath, error
 	}
 	if known, exists := canonical[strings.ToLower(result.sub)]; result.sub != "" && exists {
 		result.sub = known
+	}
+	qualified := qualifiedPatchAttribute(result)
+	if result.sub != "" {
+		qualified += "." + result.sub
+	}
+	if _, _, ok := resolveAttributeContract(definition, nil, qualified); !ok {
+		return patchPath{}, fmt.Errorf("attribute is not in the resource schema")
 	}
 	return result, nil
 }
@@ -194,19 +220,39 @@ func addValue(target map[string]any, attribute string, value any) {
 		return
 	}
 	if additions, ok := value.([]any); ok {
-		target[attribute] = append(values, additions...)
+		for _, addition := range additions {
+			if !containsPatchValue(values, addition) {
+				values = append(values, addition)
+			}
+		}
+		target[attribute] = values
 	} else {
-		target[attribute] = append(values, value)
+		if !containsPatchValue(values, value) {
+			target[attribute] = append(values, value)
+		}
 	}
 }
 
-func applyFilteredPatch(target map[string]any, path patchPath, operation string, value any) error {
+func containsPatchValue(values []any, candidate any) bool {
+	for _, value := range values {
+		if reflect.DeepEqual(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyFilteredPatch(definition ResourceDefinition, target map[string]any, path patchPath, operation string, value any) error {
 	raw, exists := target[path.attribute]
 	values, ok := raw.([]any)
 	if !exists || !ok {
 		return clientError(400, "noTarget", "PATCH value-path target does not exist")
 	}
-	filterAttribute, filterValue, err := parsePatchFilter(path.filter)
+	_, parent, ok := resolveAttributeContract(definition, nil, qualifiedPatchAttribute(path))
+	if !ok || parent.Type != "complex" || !parent.MultiValued {
+		return clientError(400, "invalidPath", "PATCH value-path parent is invalid")
+	}
+	expression, err := parseValueFilter(path.filter, parent.SubAttributes)
 	if err != nil {
 		return clientError(400, "invalidFilter", "PATCH value-path filter is unsupported")
 	}
@@ -216,12 +262,18 @@ func applyFilteredPatch(target map[string]any, path patchPath, operation string,
 		if !ok {
 			continue
 		}
-		candidate, ok := item[filterAttribute].(string)
-		if ok && strings.EqualFold(candidate, filterValue) {
+		matched, matchErr := matchFilter(expression, item)
+		if matchErr != nil {
+			return clientError(400, "invalidFilter", "PATCH value-path filter failed")
+		}
+		if matched {
 			matches = append(matches, index)
 		}
 	}
 	if len(matches) == 0 {
+		if operation == "remove" {
+			return nil
+		}
 		return clientError(400, "noTarget", "PATCH value-path matched no values")
 	}
 	if operation == "remove" && path.sub == "" {
@@ -257,18 +309,19 @@ func applyFilteredPatch(target map[string]any, path patchPath, operation string,
 	return nil
 }
 
-func parsePatchFilter(raw string) (attribute, value string, err error) {
-	space := strings.IndexAny(strings.TrimSpace(raw), " \t")
-	if space < 1 {
-		return "", "", fmt.Errorf("invalid filter")
+func qualifiedPatchAttribute(path patchPath) string {
+	if path.extension != "" {
+		return path.extension + ":" + path.attribute
 	}
-	attribute = strings.TrimSpace(raw[:space])
-	if !validName(attribute) {
-		return "", "", fmt.Errorf("invalid filter attribute")
+	return path.attribute
+}
+
+func ensureSchema(document Document, schema string) {
+	values, _ := document["schemas"].([]any)
+	for _, value := range values {
+		if current, ok := value.(string); ok && strings.EqualFold(current, schema) {
+			return
+		}
 	}
-	if known, exists := CoreKeyCases()[strings.ToLower(attribute)]; exists {
-		attribute = known
-	}
-	value, err = ParseEqualityFilter(raw, attribute)
-	return attribute, value, err
+	document["schemas"] = append(values, schema)
 }

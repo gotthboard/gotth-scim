@@ -209,7 +209,11 @@ func TestServerAdditionalInputFailures(t *testing.T) {
 		{http.MethodPut, "/scim/v2/Users/missing", `{"schemas":["` + UserSchema + `"],"id":"wrong","userName":"member"}`},
 	} {
 		response := requestServer(t, server, test.method, test.path, test.body, "tenant", nil)
-		if response.Code != 400 {
+		expected := 400
+		if index == 3 {
+			expected = 404
+		}
+		if response.Code != expected {
 			t.Errorf("invalid input %d = %d %s", index, response.Code, response.Body.String())
 		}
 	}
