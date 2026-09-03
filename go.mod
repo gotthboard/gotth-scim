@@ -1,4 +1,4 @@
-module git.dannyhunn.com/agents/gotth-scim
+module github.com/gotthboard/gotth-scim
 
 go 1.26.6
 

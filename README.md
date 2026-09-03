@@ -1,5 +1,10 @@
 # gotth-scim
 
+> **Distribution:** GitHub is the public clone, Go import, and future release endpoint.
+> Forgejo remains canonical development and the issue/contribution location.
+> See [the distribution contract](docs/distribution.md).
+
+
 `gotth-scim` is a reusable, storage-neutral SCIM 2.0 server boundary for Go.
 It provides:
 
@@ -40,3 +45,19 @@ handler, _ := scim.NewServer(scim.ServerConfig{
 
 See `docs/conformance.md` for the exact supported RFC surface and the
 consumer-owned deployment requirements.
+
+## Installation, compatibility, and support
+
+Unreleased. The Go API is pre-1.0; the exact supported standards surface is recorded in `docs/conformance.md`.
+
+No post-migration version has been tagged. To inspect the current source
+before the first admitted release:
+
+```sh
+go get github.com/gotthboard/gotth-scim@main
+```
+
+The repository has no selected license and no long-term support promise.
+Versioning, release admission, security reporting, and contribution details are
+in [the release policy](docs/RELEASING.md), [security policy](SECURITY.md), and
+[contribution guide](CONTRIBUTING.md).
