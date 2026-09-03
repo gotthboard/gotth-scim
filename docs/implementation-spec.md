@@ -1,5 +1,9 @@
 # Implementation specification
 
+- Canonical package: `github.com/gotthboard/gotth-scim/pkg/scim`.
+- The module root contains no Go package. `pkg/scim` is the only public Go
+  implementation and import path.
+
 - Implements protocol constants from RFC 7643 and RFC 7644.
 - Schema sets compare case-insensitively but reject case-equivalent duplicates.
 - Resource versions use SHA-256 over canonical state, bounded to one MiB.

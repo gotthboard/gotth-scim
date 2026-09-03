@@ -1,7 +1,7 @@
 schema_version = 1
 project = "gotth-scim"
 profile = "strict"
-active = "github-distribution"
+active = "alpha3-library-admission"
 
 [settings]
 worktree_root = "worktrees"
@@ -204,4 +204,50 @@ required = true
 timeout_seconds = 300
 side_effect = "external_read"
 network = true
+retries = 0
+
+[feature.alpha3-library-admission]
+id = "alpha3-library-admission"
+slug = "alpha3-library-admission"
+name = "Formally admit the structured alpha.3 library"
+namespace = "scim"
+parent = ""
+state = "in_progress"
+risk = "critical"
+assurance = "traceable-tests"
+created_at = "2026-09-03T06:04:51Z"
+activated_at = "2026-09-03T06:04:51Z"
+updated_at = "2026-09-03T06:04:51Z"
+folder = "workflow/features/alpha3-library-admission"
+source_path = "pkg/scim"
+worktree = "/tmp/gotth-scim-coding-setup"
+branch = "feature/openclaw-coding-setup-admission"
+scope = ["Single canonical public-package layout", "Governance-only module root", "Coding-setup traceability, runtime, performance, review, and evidence"]
+non_goals = ["Choose authentication, TLS, authorization, durable storage, provisioning scope, or product identity policy", "Tag before consumer admission"]
+affected_files = ["*.go", "pkg/scim/**", "README.md", "docs/**", "workflow.toml", "workflow/**"]
+invariants = ["RFC behavior and bounds remain unchanged", "Store error identities remain exact", "No live provider or durable database is touched"]
+acceptance = ["Canonical consumer, format, vet, race, fuzz, clean-clone, graph, and two independent Judge gates pass"]
+
+[[feature.alpha3-library-admission.dependency]]
+id = "github-distribution"
+type = "prerequisite"
+state = "satisfied"
+evidence = "workflow/features/github-distribution/evidence/verification.md"
+source_commit = "dbf3a5240f8ebfe444f863f211184c4a22994faf"
+satisfied_at = "2026-09-03T06:30:00Z"
+
+[feature.alpha3-library-admission.rollback]
+strategy = "revert_admission_commit"
+notes = "No tag or consumer pin exists; revert the structural admission commit"
+data_loss_risk = false
+requires_migration_down = false
+
+[[feature.alpha3-library-admission.verification]]
+id = "verify"
+kind = "unit-fuzz"
+command = "make verify plus declared fuzz targets"
+required = true
+timeout_seconds = 1800
+side_effect = "local_write"
+network = false
 retries = 0

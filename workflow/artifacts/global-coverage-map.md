@@ -19,6 +19,9 @@
 | Manager-scoped reconciliation | `reconcile_test.go` |
 | External consumer API | `external_test.go` |
 
+Implementation and hostile tests above now live under `pkg/scim/`; the root
+`external_test.go` imports that canonical package.
+
 The remaining uncovered statements are defensive failures requiring a broken
 Store/password adapter or failures from deterministic standard-library encoders.
 Durable adapter restart/migration behavior is outside this repository and must

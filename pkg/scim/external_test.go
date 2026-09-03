@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	scim "github.com/gotthboard/gotth-scim"
+	scim "github.com/gotthboard/gotth-scim/pkg/scim"
 )
 
 func TestPublicServerAndReconcilerAPI(t *testing.T) {

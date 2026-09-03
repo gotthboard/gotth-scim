@@ -1,7 +1,8 @@
 # Verification
 
-`make verify` checks the pinned Go toolchain, formatting, vet, race behavior,
-and a hard 90% statement-coverage floor. `make verify-repeat` runs the entire
+`make verify` checks the pinned Go toolchain, formatting, vet, race behavior
+across every package, and a hard 90% statement-coverage floor for the canonical
+`pkg/scim` implementation. `make verify-repeat` runs the entire
 race-enabled suite 50 times.
 
 The suite covers strict/collision-safe JSON, complete typed filter parsing,

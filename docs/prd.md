@@ -25,3 +25,15 @@ product's authorization model, storing plaintext passwords, sending
 notifications, invalidating product sessions, implementing a product database
 adapter, inventing vendor filter operators, or importing Mailu's email/alias
 semantics.
+
+## Alpha.3 admission requirements
+
+- `SCIM-A3-01`: New consumers import the documented `pkg/scim` package.
+- `SCIM-A3-02`: Exactly one public Go package exists and exact store-error
+  sentinel identities remain stable within it.
+- `SCIM-A3-03`: Package reorganization does not widen authentication, scope,
+  storage, password, transaction, or HTTP authority.
+- `SCIM-A3-04`: RFC limits and store/runtime contracts remain explicit and
+  boundary-tested.
+- `SCIM-A3-05`: Clean-clone, race, fuzz, canonical-consumer, graph, and two
+  clean Judge passes gate alpha.3 admission.

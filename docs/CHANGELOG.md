@@ -6,9 +6,35 @@ Released sections use Semantic Versioning; unreleased work remains under
 
 ## Unreleased
 
-### 2026-09-03 00:42 CDT — Establish GitHub public distribution
+### 2026-09-03 01:04 CDT — Structure and formally admit the alpha.3 library
 
 Commit: current commit; hash assigned by Git after commit
+
+Affected files:
+
+- `pkg/scim/`
+- canonical outside-consumer API test
+- `README.md`, `docs/`, `workflow.toml`, and admission evidence
+
+Explanation:
+
+Move the RFC-complete protocol/server/store implementation and hostile tests
+out of the repository root, leave the root for governance, and add formal
+coding-setup traceability, runtime, performance, review, and workflow records.
+
+Verification:
+
+- preliminary `go test ./...` passed after the move
+- final race, fuzz, clean-clone, graph, and Judge evidence is recorded in the
+  admission workflow evidence
+
+Risks / non-goals:
+
+- no authentication, TLS, durable store, identity system, tag, or deployment changed
+
+### 2026-09-03 00:42 CDT — Establish GitHub public distribution
+
+Commit: `5ba8966`
 
 Affected files:
 

@@ -23,3 +23,8 @@ RFC completion proceeds in dependency order:
 5. Correct discovery behavior and expose optional metadata/ETag configuration.
 6. Run the complete requirement matrix, external consumer, race, fuzz,
    clean-clone, and graph admission gates.
+
+Alpha.3 library admission then places the sole public implementation in
+`pkg/scim`, keeps the module root for governance, adds formal
+runtime/performance/traceability/changelog records, and requires two fresh
+clean Judge passes.

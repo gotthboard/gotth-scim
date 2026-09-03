@@ -6,6 +6,18 @@
 
 
 `gotth-scim` is a reusable, storage-neutral SCIM 2.0 server boundary for Go.
+
+Canonical Go package: `github.com/gotthboard/gotth-scim/pkg/scim`. The
+module root contains repository governance only; new consumers use the
+canonical package.
+
+Repository layout:
+
+- `pkg/scim/` — public protocol/server/store implementation and hostile tests;
+- module root — module metadata and repository governance;
+- `docs/` — RFC, runtime, architecture, and admission contracts;
+- `workflow/` — canonical feature state, review, and verification evidence.
+
 It provides:
 
 - strict, bounded, collision-safe JSON and protocol decoding;

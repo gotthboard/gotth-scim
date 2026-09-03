@@ -1,5 +1,8 @@
 # Architecture
 
+The canonical public implementation lives in `pkg/scim`. The module root
+contains no Go package and owns repository governance only.
+
 The package is split into five direct layers:
 
 1. Protocol primitives validate schemas, collision-safe JSON, entity tags, the
