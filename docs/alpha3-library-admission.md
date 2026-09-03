@@ -11,7 +11,7 @@ durable storage, product identity policy, or session invalidation.
 | Requirement | Design/specification | Code | Verification |
 |---|---|---|---|
 | `SCIM-A3-01` | architecture and README layout | `pkg/scim/` | canonical outside-package test |
-| `SCIM-A3-02` | implementation specification | `scim.go` | sentinel/API contract tests |
+| `SCIM-A3-02` | implementation specification | `pkg/scim/scim.go` | sentinel/API contract tests |
 | `SCIM-A3-03` | architecture authority split | server/store/password interfaces | negative and conformance tests |
 | `SCIM-A3-04` | RFC matrix and specification | protocol/server/store code | RFC, boundary, fuzz, CheckStore tests |
 | `SCIM-A3-05` | verification contract | tests/workflow evidence | clean clone, graph, two Judge passes |

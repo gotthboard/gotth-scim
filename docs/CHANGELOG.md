@@ -8,7 +8,7 @@ Released sections use Semantic Versioning; unreleased work remains under
 
 ### 2026-09-03 01:04 CDT — Structure and formally admit the alpha.3 library
 
-Commit: current commit; hash assigned by Git after commit
+Commit: `08854d0f6d23a062ad190637a6e387c6f70eebb3`
 
 Affected files:
 
