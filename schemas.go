@@ -1,5 +1,6 @@
-// Package scim implements storage-neutral SCIM 2.0 protocol validation and
-// conditional-request primitives. Applications own resources and transactions.
+// Package scim implements a storage-neutral SCIM 2.0 HTTP server, protocol
+// validation, transactional storage contract, tombstones, and reconciliation.
+// Applications own authentication, durable adapters, and product policy.
 package scim
 
 import (
@@ -8,13 +9,16 @@ import (
 )
 
 const (
-	UserSchema         = "urn:ietf:params:scim:schemas:core:2.0:User"
-	GroupSchema        = "urn:ietf:params:scim:schemas:core:2.0:Group"
-	ListResponseSchema = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
-	PatchSchema        = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
-	ErrorSchema        = "urn:ietf:params:scim:api:messages:2.0:Error"
-	BulkRequestSchema  = "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
-	BulkResponseSchema = "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
+	UserSchema                  = "urn:ietf:params:scim:schemas:core:2.0:User"
+	GroupSchema                 = "urn:ietf:params:scim:schemas:core:2.0:Group"
+	ListResponseSchema          = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+	PatchSchema                 = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+	ErrorSchema                 = "urn:ietf:params:scim:api:messages:2.0:Error"
+	BulkRequestSchema           = "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
+	BulkResponseSchema          = "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
+	ServiceProviderConfigSchema = "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
+	ResourceTypeSchema          = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
+	SchemaSchema                = "urn:ietf:params:scim:schemas:core:2.0:Schema"
 )
 
 // ValidateSchemas requires an exact case-insensitive schema set with no

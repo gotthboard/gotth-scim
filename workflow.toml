@@ -1,7 +1,7 @@
 schema_version = 1
 project = "gotth-scim"
 profile = "strict"
-active = "protocol-kernel"
+active = "server-boundary"
 
 [settings]
 worktree_root = "worktrees"
@@ -55,6 +55,43 @@ kind = "unit"
 command = "make verify"
 required = true
 timeout_seconds = 600
+side_effect = "local_write"
+network = false
+retries = 0
+
+[feature.server-boundary]
+id = "server-boundary"
+slug = "server-boundary"
+name = "Complete reusable SCIM server boundary"
+namespace = "scim"
+parent = ""
+state = "active"
+risk = "high"
+assurance = "traceable-tests"
+created_at = "2026-09-03T02:45:00Z"
+activated_at = "2026-09-03T02:45:00Z"
+updated_at = "2026-09-03T02:45:00Z"
+folder = "workflow/features/server-boundary"
+worktree = "/tmp/gotth-scim-server"
+branch = "feature/server-boundary"
+scope = ["Add standard resource validation, storage transactions and conformance, HTTP/Bulk execution, tombstones, and bounded reconciliation"]
+non_goals = ["Choose authentication policy", "Implement a product database adapter", "Store passwords", "Import Mailu domain semantics"]
+affected_files = ["**"]
+invariants = ["Every mutation checks preconditions inside its transaction", "Deleted IDs are never reassigned", "Provisioning scopes remain isolated", "Reconciliation deletes only exact manager-owned resources", "All untrusted input and work are bounded"]
+acceptance = ["RFC conformance matrix matches implemented behavior", "Unit, HTTP, storage conformance, failure-path, race, vet, format, coverage, clean-clone, and graph gates pass"]
+
+[feature.server-boundary.rollback]
+strategy = "reset feature branch to 557fee5 before admission; revert admitted commits after synchronization"
+notes = "No live provider or consumer state changes"
+data_loss_risk = false
+requires_migration_down = false
+
+[[feature.server-boundary.verification]]
+id = "verify"
+kind = "unit"
+command = "make verify"
+required = true
+timeout_seconds = 900
 side_effect = "local_write"
 network = false
 retries = 0

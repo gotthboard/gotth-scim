@@ -1,16 +1,31 @@
 # Architecture
 
-The package stops at the protocol/storage boundary:
+The package is split into four direct layers:
 
-- schemas and error envelopes describe SCIM wire contracts;
-- key normalization rejects case-fold collisions recursively;
-- entity-tag parsing implements strong mutation and weak cache comparison;
-- PATCH and Bulk decoders bound and validate generic envelopes;
-- path parsing prevents external authorities, queries, fragments, traversal,
-  encoded separators, and unresolved empty bulk references;
-- ID generation supplies an opaque value that a resource adapter persists.
+1. Protocol primitives validate schemas, collision-safe JSON, entity tags,
+   filters, PATCH, Bulk, pagination, and SCIM error envelopes.
+2. The resource registry describes standard User and Group schemas plus
+   caller-supplied extension schemas. It validates wire shape and mutability
+   before storage sees data.
+3. `Store` and `Transaction` define the persistence boundary. Transactions are
+   callback-scoped, never retried by the package, and cover precondition check
+   plus mutation. `MemoryStore` is a deterministic reference implementation,
+   not a durable production database.
+4. `Server` supplies the SCIM HTTP endpoints and `Reconciler` supplies bounded,
+   manager-scoped desired-state application. Both depend only on the registry
+   and store contract.
 
-Resource adapters will later own attribute-specific PATCH behavior and one
-atomic transaction. A server layer will map errors to `application/scim+json`.
-Keeping those layers separate prevents protocol code from pretending a Flask
-model or SQLAlchemy session is universal.
+Stored records contain normalized canonical resource JSON, persistent identity,
+timestamps, versions, provisioning scope, and an optional manager marker.
+Metadata is generated on output; clients cannot overwrite it. Tombstones are
+separate immutable records and are never returned by ordinary reads.
+
+Authorization is deliberately outside the package. Required authentication
+scheme metadata keeps discovery honest, while a required scope resolver
+maps an authenticated request to an opaque provisioning scope. This prevents
+the server from inventing bearer-token or tenant policy while ensuring every
+storage call is isolated to one explicit scope.
+
+The conformance harness is exported so a PostgreSQL, SQLite, or product-native
+adapter must prove the same identity, uniqueness, transaction, visibility, and
+tombstone behavior before use.

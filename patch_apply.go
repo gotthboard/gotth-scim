@@ -1,0 +1,274 @@
+package scim
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+type patchPath struct {
+	extension string
+	attribute string
+	filter    string
+	sub       string
+}
+
+// ApplyPatch applies the package's documented PATCH subset to a private copy
+// of current and returns a fully revalidated replacement document.
+func ApplyPatch(definition ResourceDefinition, current Document, request PatchRequest, resourceID string) (Document, []IndexKey, string, error) {
+	working, err := cloneDocument(current)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	for index, operation := range request.Operations {
+		var value any
+		if len(operation.Value) != 0 {
+			value, err = decodePatchValue(operation.Value)
+			if err != nil {
+				return nil, nil, "", clientError(400, "invalidValue", fmt.Sprintf("PATCH operation %d value is invalid", index))
+			}
+		}
+		if err := applyPatchOperation(definition, working, operation.Op, operation.Path, value); err != nil {
+			return nil, nil, "", err
+		}
+	}
+	prepared, indexes, externalID, err := prepareResource(definition, working, ReplaceMode, resourceID)
+	if err != nil {
+		return nil, nil, "", clientError(400, "invalidValue", "patched resource is invalid")
+	}
+	return prepared, indexes, externalID, nil
+}
+
+func decodePatchValue(raw json.RawMessage) (any, error) {
+	wrapped := append([]byte(`{"value":`), raw...)
+	wrapped = append(wrapped, '}')
+	document, err := DecodeDocument(wrapped)
+	if err != nil {
+		return nil, err
+	}
+	return document["value"], nil
+}
+
+func applyPatchOperation(definition ResourceDefinition, document Document, operation, rawPath string, value any) error {
+	if rawPath == "" {
+		if operation == "remove" {
+			return clientError(400, "noTarget", "PATCH remove requires a path")
+		}
+		object, ok := value.(map[string]any)
+		if !ok {
+			return clientError(400, "invalidValue", "pathless PATCH value must be an object")
+		}
+		for name, item := range object {
+			if operation == "add" {
+				addValue(document, name, item)
+			} else {
+				document[name] = item
+			}
+		}
+		return nil
+	}
+	path, err := parsePatchPath(definition, rawPath)
+	if err != nil {
+		return clientError(400, "invalidPath", "PATCH path is unsupported")
+	}
+	target := map[string]any(document)
+	if path.extension != "" {
+		raw, exists := target[path.extension]
+		if !exists {
+			if operation == "remove" || path.filter != "" || path.sub != "" {
+				return clientError(400, "noTarget", "PATCH extension target does not exist")
+			}
+			nested := make(map[string]any)
+			target[path.extension] = nested
+			target = nested
+		} else {
+			nested, ok := raw.(map[string]any)
+			if !ok {
+				return clientError(400, "invalidPath", "PATCH extension target is not an object")
+			}
+			target = nested
+		}
+	}
+	if path.filter == "" {
+		return applyDirectPatch(target, path.attribute, path.sub, operation, value)
+	}
+	return applyFilteredPatch(target, path, operation, value)
+}
+
+func parsePatchPath(definition ResourceDefinition, raw string) (patchPath, error) {
+	if !validAttributePath(raw) {
+		return patchPath{}, fmt.Errorf("invalid path")
+	}
+	result := patchPath{}
+	remaining := raw
+	for _, extension := range definition.Extensions {
+		prefix := extension.Schema + ":"
+		if len(remaining) > len(prefix) && strings.EqualFold(remaining[:len(prefix)], prefix) {
+			result.extension = extension.Schema
+			remaining = remaining[len(prefix):]
+			break
+		}
+	}
+	open := strings.IndexByte(remaining, '[')
+	if open >= 0 {
+		close := strings.LastIndexByte(remaining, ']')
+		if close <= open || strings.Contains(remaining[open+1:close], "[") {
+			return patchPath{}, fmt.Errorf("invalid value path")
+		}
+		result.attribute = remaining[:open]
+		result.filter = remaining[open+1 : close]
+		if close+1 < len(remaining) {
+			if remaining[close+1] != '.' {
+				return patchPath{}, fmt.Errorf("invalid value sub-path")
+			}
+			result.sub = remaining[close+2:]
+		}
+	} else {
+		parts := strings.Split(remaining, ".")
+		if len(parts) > 2 {
+			return patchPath{}, fmt.Errorf("path is too deep")
+		}
+		result.attribute = parts[0]
+		if len(parts) == 2 {
+			result.sub = parts[1]
+		}
+	}
+	if !validName(result.attribute) || result.sub != "" && !validName(result.sub) {
+		return patchPath{}, fmt.Errorf("attribute name is invalid")
+	}
+	canonical := CoreKeyCases()
+	if known, exists := canonical[strings.ToLower(result.attribute)]; exists {
+		result.attribute = known
+	}
+	if known, exists := canonical[strings.ToLower(result.sub)]; result.sub != "" && exists {
+		result.sub = known
+	}
+	return result, nil
+}
+
+func applyDirectPatch(target map[string]any, attribute, sub, operation string, value any) error {
+	if sub == "" {
+		_, exists := target[attribute]
+		switch operation {
+		case "remove":
+			if !exists {
+				return clientError(400, "noTarget", "PATCH target does not exist")
+			}
+			delete(target, attribute)
+		case "replace":
+			if !exists {
+				return clientError(400, "noTarget", "PATCH target does not exist")
+			}
+			target[attribute] = value
+		case "add":
+			addValue(target, attribute, value)
+		}
+		return nil
+	}
+	raw, exists := target[attribute]
+	if !exists {
+		if operation != "add" {
+			return clientError(400, "noTarget", "PATCH parent target does not exist")
+		}
+		nested := make(map[string]any)
+		nested[sub] = value
+		target[attribute] = nested
+		return nil
+	}
+	object, ok := raw.(map[string]any)
+	if !ok {
+		return clientError(400, "invalidPath", "PATCH parent target is not complex")
+	}
+	return applyDirectPatch(object, sub, "", operation, value)
+}
+
+func addValue(target map[string]any, attribute string, value any) {
+	current, exists := target[attribute]
+	if !exists {
+		target[attribute] = value
+		return
+	}
+	values, isArray := current.([]any)
+	if !isArray {
+		target[attribute] = value
+		return
+	}
+	if additions, ok := value.([]any); ok {
+		target[attribute] = append(values, additions...)
+	} else {
+		target[attribute] = append(values, value)
+	}
+}
+
+func applyFilteredPatch(target map[string]any, path patchPath, operation string, value any) error {
+	raw, exists := target[path.attribute]
+	values, ok := raw.([]any)
+	if !exists || !ok {
+		return clientError(400, "noTarget", "PATCH value-path target does not exist")
+	}
+	filterAttribute, filterValue, err := parsePatchFilter(path.filter)
+	if err != nil {
+		return clientError(400, "invalidFilter", "PATCH value-path filter is unsupported")
+	}
+	matches := make([]int, 0)
+	for index, rawItem := range values {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		candidate, ok := item[filterAttribute].(string)
+		if ok && strings.EqualFold(candidate, filterValue) {
+			matches = append(matches, index)
+		}
+	}
+	if len(matches) == 0 {
+		return clientError(400, "noTarget", "PATCH value-path matched no values")
+	}
+	if operation == "remove" && path.sub == "" {
+		remove := make(map[int]struct{}, len(matches))
+		for _, index := range matches {
+			remove[index] = struct{}{}
+		}
+		kept := values[:0]
+		for index, item := range values {
+			if _, drop := remove[index]; !drop {
+				kept = append(kept, item)
+			}
+		}
+		target[path.attribute] = kept
+		return nil
+	}
+	for _, index := range matches {
+		item := values[index].(map[string]any)
+		if path.sub == "" {
+			object, ok := value.(map[string]any)
+			if !ok {
+				return clientError(400, "invalidValue", "PATCH filtered replacement must be an object")
+			}
+			for name, field := range object {
+				item[name] = field
+			}
+			continue
+		}
+		if err := applyDirectPatch(item, path.sub, "", operation, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parsePatchFilter(raw string) (attribute, value string, err error) {
+	space := strings.IndexAny(strings.TrimSpace(raw), " \t")
+	if space < 1 {
+		return "", "", fmt.Errorf("invalid filter")
+	}
+	attribute = strings.TrimSpace(raw[:space])
+	if !validName(attribute) {
+		return "", "", fmt.Errorf("invalid filter attribute")
+	}
+	if known, exists := CoreKeyCases()[strings.ToLower(attribute)]; exists {
+		attribute = known
+	}
+	value, err = ParseEqualityFilter(raw, attribute)
+	return attribute, value, err
+}

@@ -11,7 +11,15 @@ func TestParseBulkPath(t *testing.T) {
 	if err != nil || collection != "Groups" || id != "" || reference != "created-group" {
 		t.Fatalf("ParseBulkPath(reference) = (%q, %q, %q, %v)", collection, id, reference, err)
 	}
-	for _, raw := range []string{"", "https://example/Users", "Devices", "Users/", "Users/a/b", "Users/a%2Fb", "Groups/bulkId:"} {
+	collection, id, reference, err = ParseBulkPath("Devices/device-1")
+	if err != nil || collection != "Devices" || id != "device-1" || reference != "" {
+		t.Fatalf("ParseBulkPath(custom) = (%q, %q, %q, %v)", collection, id, reference, err)
+	}
+	custom := []byte(`{"schemas":["` + BulkRequestSchema + `"],"Operations":[{"method":"POST","bulkId":"device","path":"/Devices","data":{}}]}`)
+	if decoded, err := DecodeBulk(custom); err != nil || decoded.Operations[0].Path != "/Devices" {
+		t.Fatalf("DecodeBulk(custom) = (%+v, %v)", decoded, err)
+	}
+	for _, raw := range []string{"", "https://example/Users", "1Devices", "Users/", "Users/a/b", "Users/a%2Fb", "Groups/bulkId:"} {
 		if _, _, _, err := ParseBulkPath(raw); err == nil {
 			t.Errorf("invalid path %q passed", raw)
 		}
@@ -33,6 +41,9 @@ func TestDecodeBulk(t *testing.T) {
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"PATCH","path":"/Users/bulkId:later","data":{}},{"method":"POST","bulkId":"later","path":"/Users","data":{}}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"POST","bulkId":"x","path":"/Users","data":{}},{"method":"POST","bulkId":"x","path":"/Groups","data":{}}]}`),
 		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"DELETE","path":"/Users/member","data":{}}]}`),
+		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"PUT","path":"/Users/member"}]}`),
+		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[{"method":"POST","bulkId":"x","path":"/Users","data":{}},{"method":"DELETE","path":"/Users/bulkId:missing"}]}`),
+		[]byte(`{"schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],"Operations":[]} trailing`),
 	}
 	for index, value := range invalid {
 		if got, err := DecodeBulk(value); err == nil || len(got.Operations) != 0 {

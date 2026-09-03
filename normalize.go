@@ -50,10 +50,20 @@ func NormalizeKeys(value any, canonical map[string]string) (any, error) {
 // messages. Extensions can pass an augmented copy to NormalizeKeys.
 func CoreKeyCases() map[string]string {
 	keys := []string{
-		"Operations", "$ref", "active", "bulkId", "data", "displayName",
-		"emails", "externalId", "failOnErrors", "familyName", "formatted",
-		"givenName", "id", "members", "method", "name", "op", "password",
-		"path", "primary", "schemas", "type", "userName", "value", "version",
+		"Operations", "Resources", "$ref", "active", "addresses", "attributes",
+		"authenticationSchemes", "bulk", "bulkId", "caseExact", "changePassword",
+		"country", "created", "data", "description", "display", "displayName",
+		"emails", "endpoint", "entitlements", "excludedAttributes", "externalId",
+		"failOnErrors", "familyName", "filter", "formatted", "givenName", "groups",
+		"honorificPrefix", "honorificSuffix", "id", "ims", "itemsPerPage",
+		"lastModified", "locale", "locality", "location", "maxOperations",
+		"maxPayloadSize", "maxResults", "members", "meta", "method", "middleName",
+		"multiValued", "mutability", "name", "nickName", "op", "password", "patch",
+		"path", "phoneNumbers", "photos", "postalCode", "preferredLanguage", "primary",
+		"profileUrl", "region", "required", "response", "returned", "roles", "schema",
+		"schemaExtensions", "schemas", "sort", "startIndex", "status", "streetAddress",
+		"subAttributes", "supported", "timezone", "title", "totalResults", "type",
+		"uniqueness", "userName", "userType", "value", "version", "x509Certificates",
 	}
 	result := make(map[string]string, len(keys))
 	for _, key := range keys {

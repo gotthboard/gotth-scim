@@ -22,8 +22,7 @@ type BulkRequest struct {
 	Operations   []BulkOperation `json:"Operations"`
 }
 
-// BulkOperation is one independent SCIM operation. Execution and transaction
-// policy remain caller-owned.
+// BulkOperation is one independently transactional SCIM operation.
 type BulkOperation struct {
 	Method  string          `json:"method"`
 	BulkID  string          `json:"bulkId,omitempty"`
@@ -37,6 +36,9 @@ type BulkOperation struct {
 func DecodeBulk(raw []byte) (BulkRequest, error) {
 	if len(raw) == 0 || len(raw) > MaximumBulkBytes {
 		return BulkRequest{}, fmt.Errorf("Bulk request size is invalid")
+	}
+	if _, err := DecodeDocument(raw); err != nil {
+		return BulkRequest{}, fmt.Errorf("Bulk request JSON is invalid")
 	}
 	var request BulkRequest
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -100,9 +102,10 @@ func isJSONObject(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &object) == nil && object != nil
 }
 
-// ParseBulkPath admits only relative Users or Groups collection/resource paths.
-// A bulkId reference is returned separately and must be resolved only from a
-// prior successful operation.
+// ParseBulkPath admits one relative collection or collection/resource path.
+// Collection support is determined later by the configured Registry. A bulkId
+// reference is returned separately and must be resolved only from a prior
+// successful operation.
 func ParseBulkPath(raw string) (collection, resourceID, bulkReference string, err error) {
 	if raw == "" {
 		return "", "", "", fmt.Errorf("Bulk path is empty")
@@ -113,11 +116,13 @@ func ParseBulkPath(raw string) (collection, resourceID, bulkReference string, er
 	}
 	path := strings.TrimPrefix(parsed.EscapedPath(), "/")
 	parts := strings.Split(path, "/")
-	if len(parts) < 1 || len(parts) > 2 || (parts[0] != "Users" && parts[0] != "Groups") {
-		return "", "", "", fmt.Errorf("Bulk path collection is unsupported")
+	decodedCollection, decodeErr := url.PathUnescape(parts[0])
+	collection = decodedCollection
+	if len(parts) < 1 || len(parts) > 2 || decodeErr != nil || !validName(collection) {
+		return "", "", "", fmt.Errorf("Bulk path collection is invalid")
 	}
 	if len(parts) == 1 {
-		return parts[0], "", "", nil
+		return collection, "", "", nil
 	}
 	if parts[1] == "" {
 		return "", "", "", fmt.Errorf("Bulk resource path has an empty ID")
@@ -131,7 +136,7 @@ func ParseBulkPath(raw string) (collection, resourceID, bulkReference string, er
 		if reference == "" {
 			return "", "", "", fmt.Errorf("Bulk bulkId reference is empty")
 		}
-		return parts[0], "", reference, nil
+		return collection, "", reference, nil
 	}
-	return parts[0], decoded, "", nil
+	return collection, decoded, "", nil
 }

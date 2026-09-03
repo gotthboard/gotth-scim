@@ -1,12 +1,20 @@
 # Verification
 
-`make verify` checks formatting, vet, race, and coverage. Current tests cover
-exact schema sets, canonical errors, case-collision rejection, recursive key
-normalization, resource versions, strong and weak entity-tag behavior,
-malformed tags, PATCH operation boundaries, Bulk method/count/path/bulkId
-boundaries, encoded-separator rejection, equality-filter boundaries, and
-opaque ID entropy failures.
+`make verify` checks the pinned Go toolchain, formatting, vet, race behavior,
+and a hard 90% statement-coverage floor. `make verify-repeat` runs the entire
+race-enabled suite 50 times.
 
-A complete SCIM server remains gated on resource adapters, persistence,
-tombstones, reconciliation, HTTP behavior, and a published RFC conformance
-matrix. This repository does not claim those unimplemented layers pass.
+The suite covers strict/collision-safe JSON, schema and extension validation,
+canonical errors, entity tags and preconditions, PATCH paths and execution,
+Bulk methods/references/failOnErrors, pagination and equality filters, HTTP
+discovery and resource lifecycle, provisioning-scope isolation, persistent
+IDs, uniqueness, transaction rollback, defensive copies, deletion visibility,
+immutable tombstones, reconciliation ownership, manager isolation, no-op ID
+preservation, storage conformance, and external-package API compilation.
+
+Fuzz targets exercise resource, PATCH, and Bulk decoding. The admission run
+executes each target independently in addition to its normal seed corpus.
+
+Durable database adapters remain consumer-owned and must run `CheckStore` plus
+their own restart, migration, and database-concurrency integration tests. The
+reference `MemoryStore` deliberately makes no durability claim.

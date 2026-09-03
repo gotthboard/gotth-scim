@@ -11,8 +11,7 @@ import (
 
 const MaximumPatchBytes = 1 << 20
 
-// PatchRequest is the RFC 7644 PATCH envelope. Attribute-path semantics remain
-// owned by the resource adapter.
+// PatchRequest is the RFC 7644 PATCH envelope.
 type PatchRequest struct {
 	Schemas    []string  `json:"schemas"`
 	Operations []PatchOp `json:"Operations"`
@@ -30,6 +29,9 @@ type PatchOp struct {
 func DecodePatch(raw []byte, maximumOperations int) (PatchRequest, error) {
 	if len(raw) == 0 || len(raw) > MaximumPatchBytes || maximumOperations < 1 || maximumOperations > 1000 {
 		return PatchRequest{}, fmt.Errorf("PATCH request boundary is invalid")
+	}
+	if _, err := DecodeDocument(raw); err != nil {
+		return PatchRequest{}, fmt.Errorf("PATCH request JSON is invalid")
 	}
 	var request PatchRequest
 	decoder := json.NewDecoder(bytes.NewReader(raw))

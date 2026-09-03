@@ -1,16 +1,40 @@
 # gotth-scim
 
-`gotth-scim` is a storage-neutral SCIM 2.0 protocol kernel for Go. It provides
-exact schema-set validation, collision-safe case normalization, canonical SCIM
-errors, strong resource versions, If-Match/If-None-Match evaluation, bounded
-PATCH and Bulk request decoding, safe Bulk paths, a bounded equality-filter
-subset, and persistent opaque resource ID generation.
+`gotth-scim` is a reusable, storage-neutral SCIM 2.0 server boundary for Go.
+It provides:
 
-It is not yet a complete SCIM HTTP server. Applications must supply resource
-models, attribute registries, authorization, transactions, persistence,
-reconciliation, tombstones, and endpoint routing. Those pieces cannot be copied
-from Mailu without importing Mailu's domain and database behavior.
+- strict, bounded, collision-safe JSON and protocol decoding;
+- standard User and Group validation plus registered schema extensions;
+- ServiceProviderConfig, ResourceTypes, Schemas, Users, Groups, and Bulk HTTP
+  endpoints;
+- strong ETags and transactional HTTP preconditions;
+- bounded equality filtering, pagination, PATCH, and ordered Bulk execution;
+- opaque persistent IDs, immediate deletion visibility, and irreversible
+  ownership-scoped tombstones;
+- manager-scoped atomic reconciliation that preserves provider IDs; and
+- a transaction-bearing storage interface, reference memory store, and
+  exported adapter conformance check.
 
-This is a clean extraction of protocol invariants and failure cases learned
-from the Mailu/Gophermailforge implementation, not a copy of its Flask and
-SQLAlchemy storage layer.
+Applications supply authentication, an opaque provisioning-scope resolver, a
+durable `Store` implementation, schema-extension validation, and product-side
+identity/session behavior. `MemoryStore` is for tests and ephemeral use; it is
+not fake durability.
+
+```go
+registry, _ := scim.NewRegistry(scim.DefaultDefinitions())
+store := scim.NewMemoryStore()
+handler, _ := scim.NewServer(scim.ServerConfig{
+    Store:       store,
+    Registry:    registry,
+    ExternalURL: "https://example.org/scim/v2",
+    ResolveScope: func(r *http.Request) (string, error) {
+        return authenticatedProvisioningScope(r)
+    },
+    AuthenticationSchemes: []scim.AuthenticationScheme{{
+        Type: "oauthbearertoken", Name: "Bearer", Description: "OAuth bearer token",
+    }},
+})
+```
+
+See `docs/conformance.md` for the exact supported RFC surface. Unsupported
+optional behavior is rejected rather than silently ignored.
