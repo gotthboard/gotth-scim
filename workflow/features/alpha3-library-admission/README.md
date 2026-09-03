@@ -1,5 +1,5 @@
 # Alpha.3 library admission
 
-Active structural and formal coding-setup admission for `pkg/scim`.
-Completion requires the manifest acceptance gates, RFC/store evidence, and two
-fresh clean Judge reviews at one exact committed state.
+Completed formal coding-setup admission for `pkg/scim`. The canonical package,
+RFC/store/fuzz evidence, consumer boundaries, and two clean Judge reviews are
+recorded below.
