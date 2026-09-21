@@ -6,6 +6,37 @@ Released sections use Semantic Versioning; unreleased work remains under
 
 ## Unreleased
 
+## v0.1.0 — 2026-09-21
+
+Release source: `255629e27f7df301d263a116fb37fd315ff54693`
+
+First immutable public release of the storage-neutral SCIM 2.0 protocol,
+server, and adapter-conformance library. The release preserves the admitted
+pre-1.0 API and RFC surface; it does not add runtime behavior over the release
+source commit.
+
+Compatibility effect:
+
+- establishes `v0.1.0` as the first supported module pin
+- keeps the API explicitly unstable until `v1.0.0`
+- leaves authentication, TLS, authorization, durable storage, provisioning
+  scope, and product identity policy with the consumer
+
+Verification:
+
+- format and read-only module checks
+- vet, race tests, and 90.1% statement coverage
+- clean external-consumer import
+- live Authentik to GOTTH Mail lifecycle: provision, bind, disable, revoke,
+  restore, restart, backup, and isolated restore
+- exact Forgejo/GitHub commit and annotated-tag parity
+
+Known limitations:
+
+- the library is storage-neutral and does not ship a production identity
+  provider or product database adapter
+- no long-term compatibility promise exists before `v1.0.0`
+
 ### 2026-09-13 — Select the MIT license
 
 Affected files:

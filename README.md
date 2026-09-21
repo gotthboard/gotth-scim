@@ -61,14 +61,11 @@ consumer-owned deployment requirements.
 
 ## Installation, compatibility, and support
 
-Unreleased. The Go API is pre-1.0; the exact supported standards surface is
-recorded in `docs/conformance.md`.
-
-No post-migration version has been tagged. To inspect the current source
-before the first admitted release:
+The current release is `v0.1.0`. The Go API remains pre-1.0; the exact
+supported standards surface is recorded in `docs/conformance.md`.
 
 ```sh
-go get github.com/gotthboard/gotth-scim@main
+go get github.com/gotthboard/gotth-scim@v0.1.0
 ```
 
 The repository is licensed under the [MIT License](LICENSE). The pre-1.0 API

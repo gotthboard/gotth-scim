@@ -1,7 +1,7 @@
 schema_version = 1
 project = "gotth-scim"
 profile = "strict"
-active = "mit-license"
+active = "v0.1.0-release"
 
 [settings]
 worktree_root = "worktrees"
@@ -304,6 +304,72 @@ retries = 0
 id = "mirror-parity"
 kind = "integration"
 command = "compare the exact admitted commit at canonical Forgejo and public GitHub"
+required = true
+timeout_seconds = 300
+side_effect = "external_read"
+network = true
+retries = 0
+
+[feature.v0.1.0-release]
+id = "v0.1.0-release"
+slug = "v0.1.0-release"
+name = "Publish the first immutable SCIM library release"
+namespace = "scim"
+parent = ""
+state = "active"
+risk = "critical"
+assurance = "traceable-tests"
+created_at = "2026-09-21T23:20:00Z"
+activated_at = "2026-09-21T23:20:00Z"
+updated_at = "2026-09-21T23:20:00Z"
+folder = "workflow/features/v0.1.0-release"
+source_path = "."
+worktree = "/tank/development/linus/gotth-scim/worktrees/v0.1.0-release"
+branch = "workflow/feature/v0.1.0-release"
+scope = ["Select v0.1.0 from the admitted pre-1.0 compatibility surface", "Verify the exact release source", "Publish one immutable annotated tag with exact Forgejo/GitHub parity"]
+non_goals = ["Change the Go API or runtime behavior", "Choose product identity or storage policy", "Promise v1 compatibility", "Reverse mirror direction"]
+affected_files = ["README.md", "docs/CHANGELOG.md", "docs/distribution.md", "workflow.toml", "workflow/features/v0.1.0-release/**"]
+invariants = ["SCIM protocol and bounded-work behavior remain unchanged", "Forgejo remains canonical", "GitHub receives the exact same commit and annotated tag"]
+acceptance = ["Repository verification passes on the exact release candidate", "A clean external consumer imports v0.1.0", "Forgejo and GitHub advertise the same tag object and peeled commit"]
+
+[[feature.v0.1.0-release.dependency]]
+id = "mit-license"
+type = "prerequisite"
+state = "satisfied"
+evidence = "workflow/features/mit-license/evidence/verification.md"
+source_commit = "255629e27f7df301d263a116fb37fd315ff54693"
+satisfied_at = "2026-09-21T23:20:00Z"
+
+[feature.v0.1.0-release.rollback]
+strategy = "delete_unpublished_release_ref"
+notes = "Before publication, discard the candidate branch; after publication, tags are immutable and fixes require a new version"
+data_loss_risk = false
+requires_migration_down = false
+
+[[feature.v0.1.0-release.verification]]
+id = "verify"
+kind = "unit"
+command = "make verify"
+required = true
+timeout_seconds = 1800
+side_effect = "local_write"
+network = false
+retries = 0
+
+[[feature.v0.1.0-release.verification]]
+id = "public-consumer"
+kind = "integration"
+command = "clean external module import from github.com/gotthboard/gotth-scim@v0.1.0"
+required = true
+timeout_seconds = 600
+side_effect = "external_read"
+network = true
+retries = 0
+
+[[feature.v0.1.0-release.verification]]
+id = "tag-parity"
+kind = "integration"
+command = "compare exact annotated tag object and peeled commit at Forgejo and GitHub"
 required = true
 timeout_seconds = 300
 side_effect = "external_read"
