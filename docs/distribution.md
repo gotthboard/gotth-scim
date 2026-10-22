@@ -28,7 +28,7 @@ go get github.com/gotthboard/gotth-scim@v0.1.0
 ```
 
 ```go
-import scim "github.com/gotthboard/gotth-scim"
+import scim "github.com/gotthboard/gotth-scim/pkg/scim"
 ```
 
 A Go command records the exact module version in the consumer's `go.mod`.
