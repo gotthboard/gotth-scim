@@ -271,6 +271,13 @@ func TestSearchHTTPFailuresAndBounds(t *testing.T) {
 	if response := requestServer(t, server, http.MethodGet, "/scim/v2/Users", "", "tenant", nil); response.Code != 413 {
 		t.Fatalf("candidate bound = %d %s", response.Code, response.Body.String())
 	}
+	if response := requestServer(t, server, http.MethodGet, "/scim/v2/Users?count=-1", "", "tenant", nil); response.Code != 413 {
+		t.Fatalf("negative count candidate bound = %d %s", response.Code, response.Body.String())
+	}
+	negativeCount := `{"schemas":["` + SearchRequestSchema + `"],"count":-1}`
+	if response := requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", negativeCount, "tenant", nil); response.Code != 413 {
+		t.Fatalf("POST negative count candidate bound = %d %s", response.Code, response.Body.String())
+	}
 	if response := requestServer(t, server, http.MethodGet, "/scim/v2/Users/.search", "", "tenant", nil); response.Code != 405 {
 		t.Fatalf("search method = %d", response.Code)
 	}

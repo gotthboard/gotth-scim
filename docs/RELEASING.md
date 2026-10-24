@@ -30,6 +30,39 @@ Go import, and release-distribution endpoint. Failure of mirror or release
 publication blocks the release; it does not authorize reversing mirror
 direction or publishing a different commit.
 
+## v1 stable release admission
+
+A v1 candidate additionally requires:
+
+1. `make verify` and `make verify-repeat` on the exact clean commit with
+   Go 1.26.6;
+2. a clean external consumer that compiles against the canonical
+   `pkg/scim` package and exercises the exported sentinel-error contract;
+3. two fresh independent reviews of implementation, compatibility promises,
+   and release assets;
+4. two independent runs of `scripts/build-release-candidate.sh` with the
+   authorized full commit and tree IDs whose
+   `SHA256SUMS` and every emitted byte match; and
+5. validation that the source archive contains `LICENSE`, that license
+   evidence matches the pinned module set under disabled workspace/user Go
+   configuration and a verified offline module cache, that the SPDX document
+   is valid JSON and names every linked module, and that every provenance
+   subject has the same digest in the checksum manifest. The provenance file
+   itself is checked by `SHA256SUMS` and cannot truthfully be its own subject.
+
+The v1.0.0 asset set is the source archive, exact Git source manifest, combined
+project/dependency license evidence, SPDX 2.3 SBOM, an unsigned in-toto
+Statement using the project-defined `gotth-scim/provenance/v1` predicate, and
+`SHA256SUMS`. The predicate records an explicitly untrusted local builder, the
+exact recipe blob, normalized Go 1.26.6 Linux/amd64 environment, source commit
+and tree, and verified module material. It deliberately makes no SLSA level,
+hosted-build, operator-identity, or signature claim. Any publication signature
+is an additional asset and must not change the candidate bytes.
+
+Until the immutable tag and hosted Release are explicitly authorized, the
+workflow remains a local candidate. Never describe candidate checks as
+publication, and never rebuild different bytes under an existing version.
+
 ## Read-only release closeout
 
 The tag fallback URL exists, but the authoritative GitHub release-by-tag API

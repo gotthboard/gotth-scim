@@ -12,7 +12,7 @@ deliberately supplied by consumers and must pass their own admission gates.
 | PATCH | Supported | add/remove/replace, pathless operations, direct and complex value paths, complete filters, mutability enforcement |
 | Bulk | Supported | POST/PUT/PATCH/DELETE, forward/path/data bulkId references, dependency cycles and failures, failOnErrors; operations are independently transactional |
 | Filtering | Supported | Complete bounded RFC expression grammar, schema-aware operators, complex value paths, Unicode-aware comparison |
-| Pagination | Supported | `startIndex` and `count`, bounded by configured maximum |
+| Pagination | Supported | `startIndex` and `count`, negative count interpreted as zero with accurate totals, positive count bounded by configured maximum |
 | GET and POST search | Supported | Resource and service-root `.search`, strict SearchRequest decoding, bounded candidate scans |
 | ETags and HTTP preconditions | Supported | Strong by default; optional weak SCIM validators; correct conditional read/write handling |
 | Sorting | Supported | Singular and multi-valued sub-attributes, primary selection, stable missing-value ordering |

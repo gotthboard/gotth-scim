@@ -1,7 +1,7 @@
 schema_version = 1
 project = "gotth-scim"
 profile = "strict"
-active = "v0.1.0-release"
+active = "v1-release"
 
 [settings]
 worktree_root = "worktrees"
@@ -316,12 +316,12 @@ slug = "v0.1.0-release"
 name = "Publish the first immutable SCIM library release"
 namespace = "scim"
 parent = ""
-state = "active"
+state = "blocked"
 risk = "critical"
 assurance = "traceable-tests"
 created_at = "2026-09-21T23:20:00Z"
 activated_at = "2026-09-21T23:20:00Z"
-updated_at = "2026-10-22T04:51:00Z"
+updated_at = "2026-10-24T13:42:34Z"
 folder = "workflow/features/v0.1.0-release"
 source_path = "."
 worktree = "/tank/development/linus/gotth-scim/worktrees/v0.1.0-release"
@@ -384,4 +384,91 @@ required = true
 timeout_seconds = 600
 side_effect = "external_read"
 network = true
+retries = 0
+
+
+[feature."v1-release"]
+id = "v1-release"
+slug = "v1-release"
+name = "Stabilize and prepare gotth-scim v1.0.0"
+namespace = "scim"
+parent = ""
+state = "active"
+risk = "critical"
+assurance = "traceable-tests"
+created_at = "2026-10-24T13:42:34Z"
+activated_at = "2026-10-24T13:42:34Z"
+updated_at = "2026-10-24T13:42:34Z"
+folder = "workflow/features/v1-release"
+source_path = "."
+worktree = "/home/linus/.openclaw/workspace/.artifacts/worktrees/gotth-scim-v1-release"
+branch = "workflow/feature/v1-release"
+scope = ["Correct RFC 7644 negative-count pagination for GET and POST search", "Freeze the existing pkg/scim public API, support, and error compatibility for v1", "Prepare deterministic source, checksum, provenance, SPDX SBOM, and license evidence"]
+non_goals = ["Add SCIM features beyond the negative-count correction", "Choose consumer authentication, authorization, storage, identity, or deployment policy", "Push, tag, publish a hosted Release, upload assets, or deploy"]
+affected_files = ["api/v1.0.0.txt", "Makefile", "README.md", "docs/**", "pkg/scim/search.go", "pkg/scim/*test.go", "scripts/build-release-candidate.sh", "workflow.toml", "workflow.events.jsonl", "workflow/features/v1-release/**"]
+invariants = ["Existing exported API remains source-compatible", "Exported sentinel identities and documented wire error mappings remain stable", "Malformed pagination and configured page/candidate bounds remain enforced", "Every release asset is bound to one exact clean commit and never overwritten"]
+acceptance = ["Negative GET and POST count produces an empty page with accurate totalResults", "API snapshot, format, vet, race, repeat, coverage, clean-consumer, and artifact reproducibility gates pass", "Source archive, manifest, checksums, provenance, SPDX SBOM, and license evidence agree", "Two fresh independent reviews find no unresolved blocker", "Exact candidate is committed locally without publication"]
+
+[[feature."v1-release".dependency]]
+id = "mit-license"
+type = "prerequisite"
+state = "satisfied"
+evidence = "workflow/features/mit-license/evidence/verification.md"
+source_commit = "255629e27f7df301d263a116fb37fd315ff54693"
+satisfied_at = "2026-10-24T13:42:34Z"
+
+[feature."v1-release".rollback]
+strategy = "discard_or_revert_unpublished_candidate"
+notes = "Before publication, delete the local branch or revert the candidate commit; no remote ref, tag, Release, consumer, or deployment is changed by this feature."
+data_loss_risk = false
+requires_migration_down = false
+
+[[feature."v1-release".verification]]
+id = "focused"
+kind = "unit"
+command = "go test -mod=readonly ./pkg/scim -run 'Test(NegativeCountReturnsEmptyPageWithAccurateTotal|SearchHTTPFailuresAndBounds)$' -count=1"
+required = true
+timeout_seconds = 120
+side_effect = "local_write"
+network = false
+retries = 0
+
+[[feature."v1-release".verification]]
+id = "verify"
+kind = "unit-race-coverage"
+command = "make verify"
+required = true
+timeout_seconds = 1800
+side_effect = "local_write"
+network = false
+retries = 0
+
+[[feature."v1-release".verification]]
+id = "repeat"
+kind = "race-repeat"
+command = "make verify-repeat"
+required = true
+timeout_seconds = 3600
+side_effect = "local_write"
+network = false
+retries = 0
+
+[[feature."v1-release".verification]]
+id = "consumer"
+kind = "integration"
+command = "clean external module imports exact candidate pkg/scim and checks exported error identities"
+required = true
+timeout_seconds = 600
+side_effect = "local_write"
+network = false
+retries = 0
+
+[[feature."v1-release".verification]]
+id = "release-assets"
+kind = "reproducibility"
+command = "build release candidate twice from the exact clean commit and compare every emitted byte"
+required = true
+timeout_seconds = 600
+side_effect = "local_write"
+network = false
 retries = 0

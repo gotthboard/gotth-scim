@@ -3,11 +3,13 @@ package scim
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -44,14 +46,33 @@ func decodeSearchRequest(raw []byte) (SearchRequest, error) {
 	if err != nil {
 		return SearchRequest{}, fmt.Errorf("search request JSON is invalid")
 	}
-	if value, exists := document["count"]; exists && value == nil {
-		return SearchRequest{}, fmt.Errorf("search count is invalid")
+	canonicalSearchKeys := map[string]string{"count": "count", "sortby": "sortBy", "sortorder": "sortOrder"}
+	for key, value := range document {
+		if canonical, exists := canonicalSearchKeys[strings.ToLower(key)]; exists && key != canonical {
+			delete(document, key)
+			document[canonical] = value
+		}
+	}
+	if value, exists := document["count"]; exists {
+		number, ok := value.(json.Number)
+		if !ok {
+			return SearchRequest{}, fmt.Errorf("search count is invalid")
+		}
+		count, err := parseSearchCount(string(number))
+		if err != nil {
+			return SearchRequest{}, fmt.Errorf("search count is invalid")
+		}
+		document["count"] = count
 	}
 	if value, exists := document["startIndex"]; exists && value == nil {
 		return SearchRequest{}, fmt.Errorf("search startIndex is invalid")
 	}
+	normalized, err := json.Marshal(document)
+	if err != nil {
+		return SearchRequest{}, fmt.Errorf("search request JSON is invalid")
+	}
 	var request SearchRequest
-	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder := json.NewDecoder(bytes.NewReader(normalized))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		return SearchRequest{}, fmt.Errorf("search request JSON is invalid")
@@ -74,13 +95,10 @@ func searchRequestFromQuery(query url.Values) (SearchRequest, error) {
 	if err != nil {
 		return SearchRequest{}, fmt.Errorf("startIndex is invalid")
 	}
-	count, err := queryInteger(query, "count", -1)
-	if err != nil {
-		return SearchRequest{}, fmt.Errorf("count is invalid")
-	}
 	request := SearchRequest{Filter: query.Get("filter"), SortBy: query.Get("sortBy"), SortOrder: query.Get("sortOrder"), StartIndex: start}
-	if _, present := query["count"]; present {
-		if count < 0 {
+	if values, present := query["count"]; present {
+		count, err := parseSearchCount(values[0])
+		if err != nil {
 			return SearchRequest{}, fmt.Errorf("count is invalid")
 		}
 		request.Count = &count
@@ -88,6 +106,43 @@ func searchRequestFromQuery(query url.Values) (SearchRequest, error) {
 	request.Attributes = splitAttributeParameter(query.Get("attributes"))
 	request.ExcludedAttributes = splitAttributeParameter(query.Get("excludedAttributes"))
 	return request, nil
+}
+
+func parseSearchCount(raw string) (int, error) {
+	if raw == "" {
+		return 0, fmt.Errorf("count is not an integer")
+	}
+	start := 0
+	negative := false
+	if raw[0] == '-' || raw[0] == '+' {
+		negative = raw[0] == '-'
+		start = 1
+	}
+	if start == len(raw) {
+		return 0, fmt.Errorf("count is not an integer")
+	}
+	for index := start; index < len(raw); index++ {
+		if raw[index] < '0' || raw[index] > '9' {
+			return 0, fmt.Errorf("count is not an integer")
+		}
+	}
+	if negative {
+		return 0, nil
+	}
+	digits := strings.TrimLeft(raw[start:], "0")
+	if digits == "" {
+		return 0, nil
+	}
+	maximum := int(^uint(0) >> 1)
+	maximumText := strconv.Itoa(maximum)
+	if len(digits) > len(maximumText) || len(digits) == len(maximumText) && digits > maximumText {
+		return maximum, nil
+	}
+	value, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0, fmt.Errorf("count is not an integer")
+	}
+	return value, nil
 }
 
 func splitAttributeParameter(raw string) []string {
@@ -110,10 +165,10 @@ func compileSearch(request SearchRequest, definition ResourceDefinition, maximum
 		plan.start = 1
 	}
 	if request.Count != nil {
-		if *request.Count < 0 {
-			return searchPlan{}, fmt.Errorf("count is invalid")
-		}
 		plan.count = *request.Count
+		if plan.count < 0 {
+			plan.count = 0
+		}
 		if plan.count > maximumPageSize {
 			plan.count = maximumPageSize
 		}
@@ -471,7 +526,7 @@ func (server *Server) executeSearch(writer http.ResponseWriter, request *http.Re
 		return nil
 	})
 	if err != nil {
-		if err == ErrTooMany {
+		if errors.Is(err, ErrTooMany) {
 			writeProtocolError(writer, clientError(413, "tooLarge", "search candidate boundary exceeded"))
 		} else {
 			writeStoreError(writer, err)

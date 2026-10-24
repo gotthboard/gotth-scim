@@ -61,15 +61,19 @@ consumer-owned deployment requirements.
 
 ## Installation, compatibility, and support
 
-The current release is `v0.1.0`. The Go API remains pre-1.0; the exact
-supported standards surface is recorded in `docs/conformance.md`.
+The current published release is `v0.1.0`. This branch prepares `v1.0.0` and
+freezes the existing `pkg/scim` API without claiming that an untagged candidate
+is published. The stable API, error, protocol, toolchain, and maintenance
+contract is in [the v1 compatibility contract](docs/compatibility-v1.md); the
+exact supported standards surface is recorded in `docs/conformance.md`.
 
 ```sh
 go get github.com/gotthboard/gotth-scim@v0.1.0
 ```
 
-The repository is licensed under the [MIT License](LICENSE). The pre-1.0 API
-has no long-term compatibility or support promise.
+The repository is licensed under the [MIT License](LICENSE). Until the
+`v1.0.0` tag is admitted and published, consumers must continue treating
+`v0.1.0` as the only released module version.
 Versioning, release admission, security reporting, and contribution details are
 in [the release policy](docs/RELEASING.md), [security policy](SECURITY.md), and
 [contribution guide](CONTRIBUTING.md).

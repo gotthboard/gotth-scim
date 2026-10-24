@@ -12,7 +12,7 @@ MUST or SHALL attached to that capability is mandatory here.
 | Attribute projection | mandatory provider behavior | `attributes` and `excludedAttributes` on retrieval, query, and mutation responses |
 | Filtering | optional capability | Figure 1 grammar, operators, precedence, typing, case, and complex value paths |
 | Sorting | optional capability | `sortBy` and `sortOrder` with schema-aware ordering |
-| Pagination | standard query behavior | bounded 1-based paging and accurate totals |
+| Pagination | standard query behavior | bounded 1-based paging, RFC 7644 negative count interpreted as zero, and accurate totals |
 | POST search | optional query form | root and resource `/.search` SearchRequest endpoints |
 | PUT | mandatory | replacement plus readOnly, immutable, and writeOnly rules |
 | PATCH | optional capability | atomic full path semantics, primary normalization, mutability, projection, and no-op rules |

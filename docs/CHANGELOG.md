@@ -6,6 +6,35 @@ Released sections use Semantic Versioning; unreleased work remains under
 
 ## Unreleased
 
+### v1.0.0 release candidate — 2026-10-24
+
+This candidate freezes the existing `pkg/scim` public API and support/error
+contract for the first stable major release. It corrects RFC 7644 section
+3.4.2.4 so negative GET and POST search `count` values are interpreted as
+zero, with empty pages and accurate totals, without relaxing malformed-input,
+configured page-size, or candidate-scan bounds.
+
+Compatibility effect:
+
+- establishes the proposed v1 public API baseline in `api/v1.0.0.txt`;
+- promises SemVer-compatible evolution within major version 1 after release;
+- retains all consumer-owned authentication, authorization, durable storage,
+  provisioning-scope, identity/session, and deployment boundaries; and
+- preserves exported error identities and documented HTTP/SCIM error mappings.
+
+Release preparation:
+
+- adds deterministic exact-commit source archive and source manifest generation;
+- adds SPDX 2.3 SBOM, project-defined in-toto provenance,
+  project/dependency license evidence, and SHA-256 manifests; and
+- adds explicit v1 compatibility and release-note records.
+
+No tag, push, hosted Release, or deployment is part of this candidate commit.
+Exact candidate commit, tree, asset checksums, verification, and independent
+reviews are sealed after the commit exists under
+`/home/linus/.openclaw/workspace/.artifacts/gotth-scim-v1-release-final-20261024`;
+the workflow verification record defines that non-self-referential boundary.
+
 ## v0.1.0 — 2026-09-21
 
 Release source: `255629e27f7df301d263a116fb37fd315ff54693`

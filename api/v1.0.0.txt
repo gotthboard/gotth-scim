@@ -1,0 +1,467 @@
+package scim // import "github.com/gotthboard/gotth-scim/pkg/scim"
+
+Package scim implements a storage-neutral SCIM 2.0 HTTP server, protocol
+validation, transactional storage contract, tombstones, and reconciliation.
+Applications own authentication, durable adapters, and product policy.
+
+CONSTANTS
+
+const (
+	MaximumBulkOperations = 100
+	MaximumBulkBytes      = 1 << 20
+)
+const (
+	MaximumResourceBytes = 1 << 20
+)
+const (
+	UserSchema                  = "urn:ietf:params:scim:schemas:core:2.0:User"
+	GroupSchema                 = "urn:ietf:params:scim:schemas:core:2.0:Group"
+	EnterpriseUserSchema        = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
+	ListResponseSchema          = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+	PatchSchema                 = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+	ErrorSchema                 = "urn:ietf:params:scim:api:messages:2.0:Error"
+	BulkRequestSchema           = "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
+	BulkResponseSchema          = "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
+	SearchRequestSchema         = "urn:ietf:params:scim:api:messages:2.0:SearchRequest"
+	ServiceProviderConfigSchema = "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
+	ResourceTypeSchema          = "urn:ietf:params:scim:schemas:core:2.0:ResourceType"
+	SchemaSchema                = "urn:ietf:params:scim:schemas:core:2.0:Schema"
+)
+const MaximumPatchBytes = 1 << 20
+const MaximumReconcileResources = 10000
+
+VARIABLES
+
+var (
+	ErrNotFound     = errors.New("SCIM resource not found")
+	ErrConflict     = errors.New("SCIM resource conflicts with existing state")
+	ErrPrecondition = errors.New("SCIM resource precondition failed")
+	ErrTombstoned   = errors.New("SCIM resource identity is tombstoned")
+	ErrTooMany      = errors.New("SCIM query result exceeds its bound")
+)
+
+FUNCTIONS
+
+func ApplyPatch(definition ResourceDefinition, current Document, request PatchRequest, resourceID string) (Document, []IndexKey, string, error)
+    ApplyPatch applies an RFC 7644 PATCH request to a private copy of current
+    and returns a fully revalidated replacement document.
+
+func CheckStore(ctx context.Context, factory func() Store) error
+    CheckStore verifies the transaction, identity, copy, isolation, uniqueness,
+    deletion, and tombstone requirements of a fresh Store implementation.
+
+func CoreKeyCases() map[string]string
+    CoreKeyCases is the protocol key set used by User, Group, PATCH, and Bulk
+    messages. Extensions can pass an augmented copy to NormalizeKeys.
+
+func IfMatch(header, current string, exists bool) (bool, error)
+    IfMatch reports whether an If-Match value admits mutation of a resource with
+    the current strong version. An empty header means no precondition.
+
+func IfNoneMatch(header, current string, exists bool) (bool, error)
+    IfNoneMatch reports whether a request may proceed. For reads, false maps to
+    304. For writes, false maps to 412. Weak comparison is intentional.
+
+func MatchFilter(expression *FilterExpression, document Document) (bool, error)
+    MatchFilter evaluates a validated filter against one canonical resource.
+
+func NewResourceID(entropy io.Reader) (string, error)
+    NewResourceID returns one opaque 128-bit base64url identifier. The caller
+    must persist it; regenerating IDs from mutable names violates SCIM identity.
+
+func NormalizeKeys(value any, canonical map[string]string) (any, error)
+    NormalizeKeys recursively canonicalizes known SCIM attribute spelling and
+    rejects case-equivalent collisions instead of choosing one attacker-supplied
+    value.
+
+func ParseBulkPath(raw string) (collection, resourceID, bulkReference string, err error)
+    ParseBulkPath admits one relative collection or collection/resource path.
+    Collection support is determined later by the configured Registry. A bulkId
+    reference is returned separately and must be resolved only from a prior
+    successful operation.
+
+func ParseEqualityFilter(raw, supportedAttribute string) (string, error)
+    ParseEqualityFilter accepts the deliberately bounded interoperable subset
+    `<attribute> eq "<value>"` for one caller-selected attribute.
+
+func ValidateSchemas(actual, expected []string) error
+    ValidateSchemas requires an exact case-insensitive schema set with no
+    duplicates. Extra schemas are not silently ignored.
+
+func Version(canonical []byte) (string, error)
+    Version returns a strong quoted SHA-256 entity tag for one canonical
+    resource representation. Callers must include every state field whose change
+    should invalidate conditional requests.
+
+
+TYPES
+
+type AuthenticationScheme struct {
+	Type             string `json:"type"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	SpecURI          string `json:"specUri,omitempty"`
+	DocumentationURI string `json:"documentationUri,omitempty"`
+}
+    AuthenticationScheme documents authentication performed before Server.
+    Server never parses credentials itself.
+
+type BulkOperation struct {
+	Method  string          `json:"method"`
+	BulkID  string          `json:"bulkId,omitempty"`
+	Path    string          `json:"path"`
+	Version string          `json:"version,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+    BulkOperation is one independently transactional SCIM operation.
+
+type BulkRequest struct {
+	Schemas      []string        `json:"schemas"`
+	FailOnErrors int             `json:"failOnErrors,omitempty"`
+	Operations   []BulkOperation `json:"Operations"`
+}
+    BulkRequest is the bounded RFC 7644 bulk envelope.
+
+func DecodeBulk(raw []byte) (BulkRequest, error)
+    DecodeBulk performs bounded strict decoding and generic method/path/bulkId
+    validation without executing or partially committing anything.
+
+type BulkResponse struct {
+	Schemas    []string                `json:"schemas"`
+	Operations []BulkResponseOperation `json:"Operations"`
+}
+    BulkResponse is the RFC 7644 response envelope.
+
+type BulkResponseOperation struct {
+	Method   string         `json:"method"`
+	BulkID   string         `json:"bulkId,omitempty"`
+	Location string         `json:"location,omitempty"`
+	Version  string         `json:"version,omitempty"`
+	Status   string         `json:"status"`
+	Response *ErrorResponse `json:"response,omitempty"`
+}
+    BulkResponseOperation reports one attempted Bulk operation.
+
+type DesiredResource struct {
+	ResourceType string
+	ExternalID   string
+	Data         []byte
+}
+    DesiredResource is one manager-owned desired SCIM resource.
+
+type Document map[string]any
+    Document is one decoded SCIM resource body. Callers must treat values
+    returned by this package as immutable.
+
+func DecodeDocument(raw []byte) (Document, error)
+    DecodeDocument strictly decodes one bounded JSON object. Unlike ordinary
+    encoding/json map decoding, it rejects duplicate and case-equivalent names.
+
+type ErrorResponse struct {
+	Schemas  []string `json:"schemas"`
+	Status   string   `json:"status"`
+	SCIMType string   `json:"scimType,omitempty"`
+	Detail   string   `json:"detail"`
+}
+    ErrorResponse is the RFC 7644 error envelope.
+
+func NewError(status int, scimType, detail string) (ErrorResponse, error)
+    NewError creates a canonical SCIM error without logging or exposing an
+    underlying implementation error.
+
+type Extension struct {
+	Schema      string
+	Name        string
+	Description string
+	Attributes  []SchemaAttribute
+	Required    bool
+	Validate    func(Document) error
+}
+    Extension describes one admitted schema extension. Validate receives the
+    extension object only and may enforce consumer-specific wire constraints.
+
+func EnterpriseUserExtension() Extension
+    EnterpriseUserExtension returns the optional standard RFC 7643 enterprise
+    User extension. It is included, but not required, by DefaultDefinitions.
+
+type FilterExpression struct {
+	Operator  FilterOperator
+	Attribute string
+	Value     any
+	Left      *FilterExpression
+	Right     *FilterExpression
+	Child     *FilterExpression
+
+	// Has unexported fields.
+}
+    FilterExpression is a validated, immutable RFC 7644 filter syntax tree.
+    Value is string, json.Number, bool, or nil for comparison expressions.
+
+func ParseFilter(raw string, definition ResourceDefinition) (*FilterExpression, error)
+    ParseFilter parses and schema-validates the complete RFC 7644 filter ABNF.
+
+type FilterOperator string
+    FilterOperator is one RFC 7644 filter or logical operator.
+
+const (
+	FilterEqual        FilterOperator = "eq"
+	FilterNotEqual     FilterOperator = "ne"
+	FilterContains     FilterOperator = "co"
+	FilterStartsWith   FilterOperator = "sw"
+	FilterEndsWith     FilterOperator = "ew"
+	FilterPresent      FilterOperator = "pr"
+	FilterGreaterThan  FilterOperator = "gt"
+	FilterGreaterEqual FilterOperator = "ge"
+	FilterLessThan     FilterOperator = "lt"
+	FilterLessEqual    FilterOperator = "le"
+	FilterAnd          FilterOperator = "and"
+	FilterOr           FilterOperator = "or"
+	FilterNot          FilterOperator = "not"
+	FilterValuePath    FilterOperator = "valuePath"
+)
+type IndexKey struct {
+	Name      string
+	Value     string
+	CaseExact bool
+	Unique    bool
+}
+    IndexKey is one storage lookup and uniqueness key derived from validated
+    resource data.
+
+type MemoryStore struct {
+	// Has unexported fields.
+}
+    MemoryStore is a concurrency-safe reference Store. It is intended for
+    conformance tests and ephemeral deployments, not durable production state.
+
+func NewMemoryStore() *MemoryStore
+    NewMemoryStore returns an empty reference store.
+
+func (store *MemoryStore) Transact(ctx context.Context, fn func(Transaction) error) error
+    Transact implements Store with a private copy and atomic state replacement.
+
+type PasswordStore interface {
+	Store
+	SupportsPasswordTransactions()
+}
+    PasswordStore is an explicit capability marker. Servers refuse to advertise
+    changePassword unless the configured Store implements it.
+
+type PasswordTransaction interface {
+	SetPassword(scope, resourceType, id string, password []byte) (string, error)
+}
+    PasswordTransaction is the optional atomic credential adapter used when
+    changePassword is advertised. It MUST consume but never retain the supplied
+    slice, return a non-secret revision token, and commit or roll back with the
+    enclosing Store transaction.
+
+type PatchOp struct {
+	Op    string          `json:"op"`
+	Path  string          `json:"path,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
+}
+    PatchOp is one add, remove, or replace operation.
+
+type PatchRequest struct {
+	Schemas    []string  `json:"schemas"`
+	Operations []PatchOp `json:"Operations"`
+}
+    PatchRequest is the RFC 7644 PATCH envelope.
+
+func DecodePatch(raw []byte, maximumOperations int) (PatchRequest, error)
+    DecodePatch performs bounded strict JSON decoding and validates the generic
+    PATCH envelope. It does not guess extension-schema or storage semantics.
+
+type ProtocolError struct {
+	Status   int
+	SCIMType string
+	Detail   string
+}
+    ProtocolError is a safe client-facing SCIM failure. Detail must not contain
+    implementation errors, credentials, or storage diagnostics.
+
+func (failure *ProtocolError) Error() string
+
+type Query struct {
+	Scope        string
+	ResourceType string
+	Attribute    string
+	Value        string
+	// Limit is a hard upper bound. A store MUST return ErrTooMany instead of
+	// silently truncating when more matching records exist.
+	Limit int
+}
+    Query is a bounded store query. An empty Attribute returns all live records
+    in one scope and resource type.
+
+type ReconcileRequest struct {
+	Scope         string
+	Manager       string
+	Resources     []DesiredResource
+	DeleteMissing bool
+}
+    ReconcileRequest is one atomic desired-state operation.
+
+type ReconcileResult struct {
+	Created   int
+	Updated   int
+	Deleted   int
+	Unchanged int
+}
+    ReconcileResult records deterministic counts for one committed operation.
+
+type Reconciler struct {
+	// Has unexported fields.
+}
+    Reconciler applies bounded manager-scoped desired state.
+
+func NewReconciler(store Store, registry *Registry, clock func() time.Time, entropy io.Reader) (*Reconciler, error)
+    NewReconciler constructs a reconciler. Nil clock and entropy use UTC system
+    time and crypto/rand.Reader.
+
+func (reconciler *Reconciler) Reconcile(ctx context.Context, request ReconcileRequest) (ReconcileResult, error)
+    Reconcile validates all desired state before one atomic transaction.
+    It never adopts or deletes resources carrying another manager marker.
+
+type Record struct {
+	Scope        string
+	ResourceType string
+	ID           string
+	ExternalID   string
+	Manager      string
+	Version      string
+	// CredentialVersion is opaque non-secret adapter state. It changes when a
+	// write-only credential changes and is therefore covered by Version.
+	CredentialVersion string
+	Created           time.Time
+	LastModified      time.Time
+	Data              []byte
+	Indexes           []IndexKey
+}
+    Record is the storage representation of one live SCIM resource. Data is
+    canonical JSON without server-assigned id or meta attributes.
+
+type Registry struct {
+	// Has unexported fields.
+}
+    Registry is an immutable set of resource definitions.
+
+func NewRegistry(definitions []ResourceDefinition) (*Registry, error)
+    NewRegistry validates and freezes resource definitions.
+
+type ResourceDefinition struct {
+	Name             string
+	Endpoint         string
+	Schema           string
+	Description      string
+	Attributes       []SchemaAttribute
+	UniqueAttribute  string
+	FilterAttributes []string
+	Extensions       []Extension
+	Validate         func(Document, WriteMode) error
+}
+    ResourceDefinition describes one SCIM collection and its storage lookup
+    surface. Name, endpoint, and schema are immutable after registry creation.
+
+func DefaultDefinitions() []ResourceDefinition
+    DefaultDefinitions returns standard User and Group definitions.
+
+type SchemaAttribute struct {
+	Name            string            `json:"name"`
+	Type            string            `json:"type"`
+	MultiValued     bool              `json:"multiValued"`
+	Description     string            `json:"description,omitempty"`
+	Required        bool              `json:"required"`
+	CanonicalValues []string          `json:"canonicalValues,omitempty"`
+	CaseExact       bool              `json:"caseExact"`
+	Mutability      string            `json:"mutability"`
+	Returned        string            `json:"returned"`
+	Uniqueness      string            `json:"uniqueness"`
+	ReferenceTypes  []string          `json:"referenceTypes,omitempty"`
+	SubAttributes   []SchemaAttribute `json:"subAttributes,omitempty"`
+}
+    SchemaAttribute is the discovery representation of one supported schema
+    attribute. SubAttributes applies only to complex values.
+
+type ScopeResolver func(*http.Request) (string, error)
+    ScopeResolver returns the opaque provisioning scope for an already
+    authenticated request. Returning an error denies the request.
+
+type SearchRequest struct {
+	Schemas            []string `json:"schemas"`
+	Attributes         []string `json:"attributes,omitempty"`
+	ExcludedAttributes []string `json:"excludedAttributes,omitempty"`
+	Filter             string   `json:"filter,omitempty"`
+	SortBy             string   `json:"sortBy,omitempty"`
+	SortOrder          string   `json:"sortOrder,omitempty"`
+	StartIndex         int      `json:"startIndex,omitempty"`
+	Count              *int     `json:"count,omitempty"`
+}
+    SearchRequest is the RFC 7644 POST .search request body.
+
+type Server struct {
+	// Has unexported fields.
+}
+    Server is a concurrency-safe SCIM HTTP handler.
+
+func NewServer(config ServerConfig) (*Server, error)
+    NewServer validates configuration and returns a ready HTTP handler.
+
+func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request)
+    ServeHTTP serves discovery, resource, and Bulk endpoints below ExternalURL's
+    path. Authentication must run before this handler.
+
+type ServerConfig struct {
+	Store                   Store
+	Registry                *Registry
+	ExternalURL             string
+	ResolveScope            ScopeResolver
+	Clock                   func() time.Time
+	Entropy                 io.Reader
+	MaximumPageSize         int
+	MaximumPatchOperations  int
+	MaximumSearchCandidates int
+	AuthenticationSchemes   []AuthenticationScheme
+	DocumentationURI        string
+	PublicDiscovery         bool
+	WeakETags               bool
+	ChangePasswordSupported bool
+}
+    ServerConfig defines one SCIM HTTP handler.
+
+type Store interface {
+	Transact(context.Context, func(Transaction) error) error
+}
+    Store runs one callback in one atomic transaction. Implementations must call
+    fn exactly once, commit only when fn returns nil, and never retry it.
+
+type Tombstone struct {
+	Scope        string
+	ResourceType string
+	ID           string
+	ExternalID   string
+	Manager      string
+	Version      string
+	DeletedAt    time.Time
+}
+    Tombstone permanently reserves a deleted provider ID and records the
+    provisioning ownership needed to prevent unsafe automatic recreation.
+
+type Transaction interface {
+	Get(scope, resourceType, id string) (Record, error)
+	List(Query) ([]Record, error)
+	Create(Record) error
+	Replace(Record, string) error
+	Delete(scope, resourceType, id, expectedVersion string, tombstone Tombstone) error
+	Tombstones(scope, resourceType string) ([]Tombstone, error)
+}
+    Transaction is the complete persistence contract used by Server and
+    Reconciler. Returned values and accepted slices must be defensively copied.
+
+type WriteMode uint8
+    WriteMode distinguishes create from replacement validation.
+
+const (
+	CreateMode WriteMode = iota + 1
+	ReplaceMode
+)

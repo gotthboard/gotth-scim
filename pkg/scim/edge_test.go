@@ -268,8 +268,9 @@ func TestServerReplacePaginationAndErrors(t *testing.T) {
 		t.Fatalf("page = %#v", decoded)
 	}
 	for _, path := range []string{
-		`/scim/v2/Users?count=-1`,
+		`/scim/v2/Users?count=`,
 		`/scim/v2/Users?count=bad`,
+		`/scim/v2/Users?count=1.5`,
 	} {
 		if response := requestServer(t, server, http.MethodGet, path, "", "tenant", nil); response.Code != http.StatusBadRequest {
 			t.Errorf("GET %s = %d", path, response.Code)
@@ -280,6 +281,111 @@ func TestServerReplacePaginationAndErrors(t *testing.T) {
 	}
 	if response := requestServer(t, server, http.MethodDelete, "/scim/v2/Users/"+id+"?x=1", "", "tenant", nil); response.Code != http.StatusBadRequest {
 		t.Fatalf("resource query = %d", response.Code)
+	}
+}
+
+func TestSearchCountParsingIsLinearAndBounded(t *testing.T) {
+	nearLimit := strings.Repeat("9", MaximumResourceBytes-64)
+	maximum := int(^uint(0) >> 1)
+	for _, test := range []struct {
+		raw  string
+		want int
+	}{
+		{nearLimit, maximum},
+		{"-" + nearLimit, 0},
+		{"+" + nearLimit, maximum},
+		{strings.Repeat("0", MaximumResourceBytes-65) + "7", 7},
+	} {
+		got, err := parseSearchCount(test.raw)
+		if err != nil || got != test.want {
+			t.Fatalf("parseSearchCount(%d bytes) = %d, %v; want %d", len(test.raw), got, err, test.want)
+		}
+	}
+	if _, err := parseSearchCount(nearLimit + "x"); err == nil {
+		t.Fatal("near-limit malformed count passed")
+	}
+}
+
+func TestNegativeCountReturnsEmptyPageWithAccurateTotal(t *testing.T) {
+	server := newTestServer(t)
+	for _, name := range []string{"one", "two", "three"} {
+		response := requestServer(t, server, http.MethodPost, "/scim/v2/Users", `{"schemas":["`+UserSchema+`"],"userName":"`+name+`"}`, "tenant", nil)
+		if response.Code != http.StatusCreated {
+			t.Fatal(response.Body.String())
+		}
+	}
+
+	assertEmptyPage := func(label string, response *httptest.ResponseRecorder) {
+		t.Helper()
+		decoded := decodeResponse(t, response)
+		resources, ok := decoded["Resources"].([]any)
+		if response.Code != http.StatusOK || !ok || len(resources) != 0 || decoded["totalResults"] != json.Number("3") || decoded["itemsPerPage"] != json.Number("0") || decoded["startIndex"] != json.Number("1") {
+			t.Fatalf("%s = %d %#v", label, response.Code, decoded)
+		}
+	}
+
+	assertEmptyPage("GET negative count", requestServer(t, server, http.MethodGet, "/scim/v2/Users?count=-7", "", "tenant", nil))
+	assertEmptyPage("root GET negative count", requestServer(t, server, http.MethodGet, "/scim/v2?count=-7", "", "tenant", nil))
+	assertEmptyPage("GET unbounded negative count", requestServer(t, server, http.MethodGet, "/scim/v2/Users?count=-999999999999999999999999999999999999999", "", "tenant", nil))
+	post := `{"schemas":["` + SearchRequestSchema + `"],"count":-7}`
+	assertEmptyPage("POST negative count", requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", post, "tenant", nil))
+	assertEmptyPage("root POST negative count", requestServer(t, server, http.MethodPost, "/scim/v2/.search", post, "tenant", nil))
+	post = `{"schemas":["` + SearchRequestSchema + `"],"count":-999999999999999999999999999999999999999}`
+	assertEmptyPage("POST unbounded negative count", requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", post, "tenant", nil))
+	post = `{"SCHEMAS":["` + SearchRequestSchema + `"],"Count":-999999999999999999999999999999999999999}`
+	assertEmptyPage("POST mixed-case negative count", requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", post, "tenant", nil))
+
+	server.maximumPageSize = 2
+	assertBoundedPage := func(label string, response *httptest.ResponseRecorder) {
+		t.Helper()
+		decoded := decodeResponse(t, response)
+		resources, ok := decoded["Resources"].([]any)
+		if response.Code != http.StatusOK || !ok || len(resources) != 2 || decoded["totalResults"] != json.Number("3") || decoded["itemsPerPage"] != json.Number("2") {
+			t.Fatalf("%s = %d %#v", label, response.Code, decoded)
+		}
+	}
+	assertBoundedPage("GET unbounded positive count", requestServer(t, server, http.MethodGet, "/scim/v2/Users?count=999999999999999999999999999999999999999", "", "tenant", nil))
+	post = `{"schemas":["` + SearchRequestSchema + `"],"count":999999999999999999999999999999999999999}`
+	assertBoundedPage("POST unbounded positive count", requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", post, "tenant", nil))
+	post = `{"Schemas":["` + SearchRequestSchema + `"],"COUNT":999999999999999999999999999999999999999}`
+	assertBoundedPage("POST mixed-case positive count", requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", post, "tenant", nil))
+
+	malformedGET := requestServer(t, server, http.MethodGet, "/scim/v2/Users?count=bad", "", "tenant", nil)
+	if decoded := decodeResponse(t, malformedGET); malformedGET.Code != http.StatusBadRequest || decoded["scimType"] != "invalidValue" {
+		t.Fatalf("malformed GET count = %d %#v", malformedGET.Code, decoded)
+	}
+	for _, body := range []string{
+		`{"schemas":["` + SearchRequestSchema + `"],"count":"bad"}`,
+		`{"Schemas":["` + SearchRequestSchema + `"],"Count":null}`,
+	} {
+		malformedPOST := requestServer(t, server, http.MethodPost, "/scim/v2/Users/.search", body, "tenant", nil)
+		if decoded := decodeResponse(t, malformedPOST); malformedPOST.Code != http.StatusBadRequest || decoded["scimType"] != "invalidSyntax" {
+			t.Fatalf("malformed POST count = %d %#v", malformedPOST.Code, decoded)
+		}
+	}
+
+	negative := -7
+	definition := DefaultDefinitions()[0]
+	plan, err := compileSearch(SearchRequest{Count: &negative}, definition, 2)
+	if err != nil || plan.count != 0 {
+		t.Fatalf("negative count plan = %+v, %v", plan, err)
+	}
+	resources, total, err := applySearch(plan, []Document{{"id": "one"}, {"id": "two"}, {"id": "three"}})
+	if err != nil || len(resources) != 0 || total != 3 {
+		t.Fatalf("negative count search = %d resources, total %d, %v", len(resources), total, err)
+	}
+
+	large := 99
+	plan, err = compileSearch(SearchRequest{Count: &large}, definition, 2)
+	if err != nil || plan.count != 2 {
+		t.Fatalf("configured page bound = %+v, %v", plan, err)
+	}
+
+	server.store = failingStore{err: fmt.Errorf("wrapped: %w", ErrTooMany)}
+	response := requestServer(t, server, http.MethodGet, "/scim/v2/Users", "", "tenant", nil)
+	wrapped := decodeResponse(t, response)
+	if response.Code != http.StatusRequestEntityTooLarge || wrapped["scimType"] != "tooLarge" {
+		t.Fatalf("wrapped candidate bound = %d %#v", response.Code, wrapped)
 	}
 }
 

@@ -17,7 +17,9 @@ endpoints.
 
 ## Maturity and compatibility
 
-Current status: `v0.1.0`, an unstable pre-1.0 Go library release.
+Current published status: `v0.1.0`, an unstable pre-1.0 Go library release.
+A local `v1.0.0` stable candidate is under admission; it is not distributed
+until its exact commit is tagged and the required hosted Release is verified.
 
 ## Current release use
 
@@ -32,7 +34,8 @@ import scim "github.com/gotthboard/gotth-scim/pkg/scim"
 ```
 
 A Go command records the exact module version in the consumer's `go.mod`.
-Source snapshots and `@main` are not compatibility promises.
+Source snapshots, candidate branches, and `@main` are not releases. The v1
+compatibility promise starts only at the immutable `v1.0.0` tag.
 
 The repository pins Go 1.26.6 where a Go module exists. Supported protocol,
 runtime, database, and tool versions remain the ones stated in the README and
